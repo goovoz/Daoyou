@@ -57,6 +57,9 @@ const families = {
 // [daoyou-fork L1] fork-patch: gm-panel —— 道装可指定属性选项
 type EquipmentOptions = {
   elements: string[];
+  slot?: string | null;
+  /** 只有法兵与法衣可附灵 */
+  canAttachSpirit?: boolean;
   baseStatRanges: Array<{ attr: string; min: number; max: number }>;
   bonusAttrs: Array<{ value: string; label: string }>;
   formationLevelLimits: Array<{ equipmentLevel: number; maxLevel: number }>;
@@ -176,6 +179,8 @@ export function RewardItemPicker({
     ? `数值范围 ${bonusRange.min}~${bonusRange.max}`
     : '当前境界未开放';
   const selectedArt = eqOptions?.arts.find((item) => item.id === artId);
+  // 仅法兵与法衣可附灵：其他部位不展示、也不提交附灵
+  const canAttachSpirit = eqOptions?.canAttachSpirit === true;
   const setBonusAt = (index: number, next: BonusDraft) => {
     if (index === 0) setBonusA(next);
     else setBonusB(next);
@@ -320,7 +325,7 @@ export function RewardItemPicker({
                 ? { baseStats: baseStatOverrides }
                 : {}),
               ...(element ? { element } : {}),
-              ...(bonusDrafts.length
+              ...(canAttachSpirit && bonusDrafts.length
                 ? { attributeBonuses: bonusDrafts }
                 : {}),
               ...(essenceIds.length ? { essenceIds } : {}),
@@ -673,7 +678,8 @@ export function RewardItemPicker({
                       ))}
                     </InkSelect>
 
-                    {[0, 1].map((index) => {
+                    {/* 仅法兵与法衣可附灵，其他部位整块不渲染 */}
+                    {(canAttachSpirit ? [0, 1] : []).map((index) => {
                       const draft = index === 0 ? bonusA : bonusB;
                       return (
                         <div key={index} className="flex flex-wrap gap-2">

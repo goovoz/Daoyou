@@ -120,6 +120,9 @@ export function buildEquipmentOptions(
 
   return {
     elements: [...ELEMENT_VALUES],
+    slot: slot ?? null,
+    /** 只有法兵与法衣可附灵（与 compiler 校验一致） */
+    canAttachSpirit: slot === 'weapon' || slot === 'armor',
     baseStatRanges,
     bonusAttrs: Object.entries(BONUS_ATTR_LABELS).map(([value, label]) => ({
       value,
@@ -212,8 +215,13 @@ export function validateEquipmentOverrides(params: {
     }
   }
 
-  if (params.input.attributeBonuses) {
+  if (params.input.attributeBonuses && params.input.attributeBonuses.length) {
     const list = params.input.attributeBonuses;
+    // 与 game-rules 的 compiler 同一条规则：只有法兵(weapon)与法衣(armor)可附灵
+    if (slot !== 'weapon' && slot !== 'armor') {
+      errors.push('仅法兵与法衣可附灵，最多2条');
+      return errors;
+    }
     const range = bonusValueRange(params.equipmentLevel);
     if (!range) {
       errors.push(`${params.equipmentLevel} 阶道装尚未开放附灵`);
