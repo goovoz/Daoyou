@@ -47,15 +47,19 @@ export function formationMaxLevel(equipmentLevel: number): number {
   );
 }
 
-/** 附灵单条数值区间：max(1, floor(level × 0.08)) ~ max(1, floor(level × 0.14)) */
+/**
+ * 附灵单条数值区间：直接取内容包的 bonusRanges 真值表，
+ * 与 game-rules/equipment/ranges.ts 的 daoEquipmentAttributeRange 完全一致。
+ * 例：10 阶（炼气）4~7、30 阶 7~14、50 阶 11~22、70 阶 15~29、90 阶 18~36。
+ */
 export function bonusValueRange(equipmentLevel: number): {
   min: number;
   max: number;
-} {
-  return {
-    min: Math.max(1, Math.floor(equipmentLevel * 0.08)),
-    max: Math.max(1, Math.floor(equipmentLevel * 0.14)),
-  };
+} | null {
+  const range = DAO_EQUIPMENT_BASE_GENERATION.bonusRanges.find(
+    (r) => r.level === equipmentLevel,
+  );
+  return range ? { min: range.min, max: range.max } : null;
 }
 
 /**
@@ -228,6 +232,10 @@ export function validateEquipmentOverrides(params: {
   if (params.input.attributeBonuses) {
     const list = params.input.attributeBonuses;
     const range = bonusValueRange(params.equipmentLevel);
+    if (!range) {
+      errors.push(`${params.equipmentLevel} 阶道装尚未开放附灵`);
+      return errors;
+    }
     if (list.length > 2) errors.push('附灵最多 2 条');
     const seen = new Set<string>();
     for (const bonus of list) {

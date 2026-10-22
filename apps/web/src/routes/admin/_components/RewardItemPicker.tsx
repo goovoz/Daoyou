@@ -67,6 +67,7 @@ type EquipmentOptions = {
   }>;
   essences: Array<{ id: string; name: string; description: string }>;
   arts: Array<{ id: string; name: string; description: string }>;
+  baseBonusRanges?: Array<{ level: number; min: number; max: number }>;
 };
 
 const PANEL_ATTR_LABELS: Record<string, string> = {
@@ -162,7 +163,12 @@ export function RewardItemPicker({
     eqOptions?.formationLevelLimits.find(
       (rule) => rule.equipmentLevel === Number(level),
     )?.maxLevel ?? 0;
-  const bonusHint = `数值范围 ${Math.max(1, Math.floor(Number(level) * 0.08))}~${Math.max(1, Math.floor(Number(level) * 0.14))}`;
+  const bonusRange = eqOptions?.baseBonusRanges?.find(
+    (rule) => rule.level === Number(level),
+  );
+  const bonusHint = bonusRange
+    ? `数值范围 ${bonusRange.min}~${bonusRange.max}`
+    : '当前境界未开放';
   const setBonusAt = (index: number, next: BonusDraft) => {
     if (index === 0) setBonusA(next);
     else setBonusB(next);
