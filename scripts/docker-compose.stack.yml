@@ -1,0 +1,146 @@
+# [daoyou-fork] 单机全栈编排：PG + Redis + NATS + API + Web
+#
+# 用法（在 VM 上）：
+#   cp env/example.env .env.production   # 改成生产值，APP_ENV 必须 staging/production
+#   docker compose -f scripts/docker-compose.stack.yml --env-file .env.production up -d --wait
+#
+# 数据库迁移要在起 app 之前单独跑一次：
+#   docker compose -f scripts/docker-compose.stack.yml --env-file .env.production run --rm \
+#     app node node_modules/drizzle-kit/bin.cjs migrate
+#
+# 需要零停机发版时改走上游的 docker-compose.production.yml + scripts/blue-green-app.sh。
+
+name: daoyou
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-daoyou}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: ${POSTGRES_DB:-daoyou}
+      # 与 8 GB 机器的内存预算匹配；机型更大可调到 1GB
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - max_connections=60
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-daoyou} -d ${POSTGRES_DB:-daoyou}']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [runtime]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.production}
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks: [runtime]
+
+  nats:
+    image: nats:2.11-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - --jetstream
+      - --store_dir=/data/jetstream
+      - --http_port=8222
+      - --user=${NATS_USER:-app}
+      - --pass=${NATS_PASSWORD:?set NATS_PASSWORD in .env.production}
+    volumes:
+      - nats-data:/data/jetstream
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8222/healthz | grep -q ok']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [runtime]
+
+  app:
+    image: ${APP_IMAGE:-ghcr.io/goovoz/daoyou-app:latest}
+    restart: unless-stopped
+    logging: *default-logging
+    stop_grace_period: 75s
+    env_file:
+      - ${ENV_FILE:-.env.production}
+    environment:
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    # 定时任务由宿主机 cron 打这个口；不对外暴露
+    ports:
+      - '127.0.0.1:${APP_PORT:-3000}:3000'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health-check').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [runtime]
+
+  web:
+    image: ${WEB_IMAGE:-ghcr.io/goovoz/daoyou-web:latest}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      app:
+        condition: service_started
+    ports:
+      - '${WEB_PORT:-80}:80'
+    networks: [runtime]
+
+volumes:
+  postgres-data:
+  redis-data:
+  nats-data:
+
+networks:
+  runtime:
+    name: daoyou-runtime

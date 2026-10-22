@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+# [daoyou-fork] 前端静态站镜像
+# 上游只构建 API（docker/Dockerfile.app），SPA 由 EdgeOne 托管。
+# 自建部署需要自己把 apps/web/dist 打进一个 nginx 镜像。
+
+FROM node:24.18.0-bookworm-slim AS builder
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN npm install --global pnpm@12.10.1
+
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json ./apps/web/package.json
+COPY apps/api/package.json ./apps/api/package.json
+COPY packages/constants/package.json ./packages/constants/package.json
+COPY packages/game-domain/package.json ./packages/game-domain/package.json
+COPY packages/combat-core/package.json ./packages/combat-core/package.json
+COPY packages/game-content/package.json ./packages/game-content/package.json
+COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/game-rules/package.json ./packages/game-rules/package.json
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm run build:client
+
+FROM nginx:1.27-alpine AS runtime
+# 与 API 同源部署：前端请求 /api 相对路径，由本 nginx 反代到 app 容器。
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
+EXPOSE 80
+STOPSIGNAL SIGQUIT
