@@ -14,6 +14,7 @@ apps/api/src/lib/llm/runtime-provider.ts
 apps/api/src/admin/llm-config.service.ts
 apps/api/src/admin/llm-config.controller.ts
 apps/api/src/admin/llm-config-input.ts
+apps/api/src/admin/equipment-options.ts
 apps/web/src/routes/admin/llm/
 drizzle/0067_gm_panel.sql
 docker/Dockerfile.web

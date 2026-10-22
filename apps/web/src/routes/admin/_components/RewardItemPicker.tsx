@@ -54,6 +54,26 @@ const families = {
   longevity: '延寿',
   hybrid: '复合',
 };
+// [daoyou-fork L1] fork-patch: gm-panel —— 道装非器胚属性选项
+type EquipmentOptions = {
+  elements: string[];
+  bonusAttrs: Array<{ value: string; label: string }>;
+  formationLevelLimits: Array<{ equipmentLevel: number; maxLevel: number }>;
+  inscriptions: Array<{
+    id: string;
+    name: string;
+    valuePerLevel: number;
+  }>;
+  essences: Array<{ id: string; name: string; description: string }>;
+  arts: Array<{ id: string; name: string; description: string }>;
+};
+
+type BonusDraft = { attr: string; value: string };
+type FormationDraft = { patternId: string; level: string };
+
+const EMPTY_BONUS: BonusDraft = { attr: '', value: '' };
+const EMPTY_FORMATION: FormationDraft = { patternId: '', level: '1' };
+
 export function RewardItemPicker({
   onSelect,
   disabled = false,
@@ -92,6 +112,42 @@ export function RewardItemPicker({
   const [level, setLevel] = useState('10');
   const [baseQuality, setBaseQuality] = useState('0');
   const [weapon, setWeapon] = useState('sword');
+  // [daoyou-fork L1] fork-patch: gm-panel —— 道装非器胚属性
+  const [element, setElement] = useState('');
+  const [bonusA, setBonusA] = useState<BonusDraft>(EMPTY_BONUS);
+  const [bonusB, setBonusB] = useState<BonusDraft>(EMPTY_BONUS);
+  const [essenceIds, setEssenceIds] = useState<string[]>([]);
+  const [artId, setArtId] = useState('');
+  const [formationA, setFormationA] =
+    useState<FormationDraft>(EMPTY_FORMATION);
+  const [formationB, setFormationB] =
+    useState<FormationDraft>(EMPTY_FORMATION);
+  const [eqOptions, setEqOptions] = useState<EquipmentOptions | null>(null);
+  const bonusDrafts = [bonusA, bonusB]
+    .filter((draft) => draft.attr && draft.value.trim() !== '')
+    .map((draft) => ({ attr: draft.attr, value: Number(draft.value) }));
+  const formationDrafts = [formationA, formationB].some(
+    (draft) => draft.patternId,
+  )
+    ? [formationA, formationB].map((draft) =>
+        draft.patternId
+          ? { patternId: draft.patternId, level: Number(draft.level) || 1 }
+          : null,
+      )
+    : [];
+  const formationMaxLevel =
+    eqOptions?.formationLevelLimits.find(
+      (rule) => rule.equipmentLevel === Number(level),
+    )?.maxLevel ?? 0;
+  const bonusHint = `数值范围 ${Math.max(1, Math.floor(Number(level) * 0.08))}~${Math.max(1, Math.floor(Number(level) * 0.14))}`;
+  const setBonusAt = (index: number, next: BonusDraft) => {
+    if (index === 0) setBonusA(next);
+    else setBonusB(next);
+  };
+  const setFormationAt = (index: number, next: FormationDraft) => {
+    if (index === 0) setFormationA(next);
+    else setFormationB(next);
+  };
   const isGenerator = [
     'pill',
     'spirit_fruit',
@@ -146,6 +202,38 @@ export function RewardItemPicker({
       controller.abort();
     };
   }, [open, isLibrary, kind, query, page, materialType]);
+  // [daoyou-fork L1] fork-patch: gm-panel —— 拉取道装可选的非器胚属性
+  useEffect(() => {
+    if (!open || kind !== 'equipment') return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await apiFetch(
+          `/api/admin/reward-items/equipment-options?templateId=${encodeURIComponent(templateId)}`,
+        );
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? '加载道装选项失败');
+        if (cancelled) return;
+        const options = data.data as EquipmentOptions;
+        setEqOptions(options);
+        setEssenceIds((prev) =>
+          prev.filter((id) => options.essences.some((e) => e.id === id)),
+        );
+        setArtId((prev) =>
+          prev && options.arts.some((a) => a.id === prev) ? prev : '',
+        );
+        setFormationA(EMPTY_FORMATION);
+        setFormationB(EMPTY_FORMATION);
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : '加载道装选项失败');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, kind, templateId]);
   const catalogue: ItemGrant[] = isGenerator
     ? generated
         .filter((entry) => entry.kind === kind)
@@ -181,6 +269,16 @@ export function RewardItemPicker({
               baseQuality: Number(baseQuality),
               ...(templateId.includes('.weapon.')
                 ? { weaponType: weapon }
+                : {}),
+              // [daoyou-fork L1] fork-patch: gm-panel —— 非器胚属性
+              ...(element ? { element } : {}),
+              ...(bonusDrafts.length
+                ? { attributeBonuses: bonusDrafts }
+                : {}),
+              ...(essenceIds.length ? { essenceIds } : {}),
+              ...(artId ? { artId } : {}),
+              ...(formationDrafts.length
+                ? { formationInscriptions: formationDrafts }
                 : {}),
             }
           : kind === 'talisman'
@@ -490,6 +588,153 @@ export function RewardItemPicker({
                         ))}
                       </InkSelect>
                     )}
+                    {/* [daoyou-fork L1] fork-patch: gm-panel —— 非器胚属性 */}
+                    <InkSelect
+                      label="五行属性"
+                      value={element}
+                      onChange={setElement}
+                    >
+                      <option value="">随机（按生成规则）</option>
+                      {(eqOptions?.elements ?? []).map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </InkSelect>
+
+                    {[0, 1].map((index) => {
+                      const draft = index === 0 ? bonusA : bonusB;
+                      return (
+                        <div key={index} className="flex flex-wrap gap-2">
+                          <div className="min-w-[9rem] flex-1">
+                            <InkSelect
+                              label={`附灵 ${index + 1} 属性`}
+                              value={draft.attr}
+                              onChange={(value) =>
+                                setBonusAt(index, { ...draft, attr: value })
+                              }
+                            >
+                              <option value="">无</option>
+                              {(eqOptions?.bonusAttrs ?? []).map((item) => (
+                                <option key={item.value} value={item.value}>
+                                  {item.label}
+                                </option>
+                              ))}
+                            </InkSelect>
+                          </div>
+                          <div className="min-w-[7rem] flex-1">
+                            <InkInput
+                              label="数值"
+                              value={draft.value}
+                              onChange={(value) =>
+                                setBonusAt(index, { ...draft, value })
+                              }
+                              placeholder={bonusHint}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {eqOptions?.essences.length ? (
+                      <fieldset className="border-ink/15 rounded border p-2">
+                        <legend className="text-ink/60 px-1 text-xs">
+                          器蕴（最多 2 条）
+                        </legend>
+                        <div className="grid gap-1">
+                          {eqOptions.essences.map((item) => (
+                            <label
+                              key={item.id}
+                              className="text-ink/80 flex items-center gap-2 text-sm"
+                              title={item.description}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={essenceIds.includes(item.id)}
+                                onChange={(event) => {
+                                  if (event.target.checked) {
+                                    setEssenceIds((prev) =>
+                                      prev.length >= 2
+                                        ? prev
+                                        : [...prev, item.id],
+                                    );
+                                  } else {
+                                    setEssenceIds((prev) =>
+                                      prev.filter((id) => id !== item.id),
+                                    );
+                                  }
+                                }}
+                              />
+                              {item.name}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                    ) : null}
+
+                    {eqOptions?.arts.length ? (
+                      <InkSelect label="器诀" value={artId} onChange={setArtId}>
+                        <option value="">无</option>
+                        {eqOptions.arts.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </InkSelect>
+                    ) : null}
+
+                    {eqOptions?.inscriptions.length ? (
+                      <fieldset className="border-ink/15 rounded border p-2">
+                        <legend className="text-ink/60 px-1 text-xs">
+                          阵法灵纹（双孔，每孔上限 {formationMaxLevel} 级）
+                        </legend>
+                        {[0, 1].map((index) => {
+                          const draft =
+                            index === 0 ? formationA : formationB;
+                          return (
+                            <div
+                              key={index}
+                              className="flex flex-wrap gap-2 py-1"
+                            >
+                              <div className="min-w-[10rem] flex-1">
+                                <InkSelect
+                                  label={`${index + 1} 孔阵纹`}
+                                  value={draft.patternId}
+                                  onChange={(value) =>
+                                    setFormationAt(index, {
+                                      ...draft,
+                                      patternId: value,
+                                    })
+                                  }
+                                >
+                                  <option value="">空孔</option>
+                                  {(eqOptions?.inscriptions ?? []).map(
+                                    (item) => (
+                                      <option key={item.id} value={item.id}>
+                                        {item.name}
+                                      </option>
+                                    ),
+                                  )}
+                                </InkSelect>
+                              </div>
+                              <div className="min-w-[6rem] flex-1">
+                                <InkInput
+                                  label="等级"
+                                  value={draft.level}
+                                  onChange={(value) =>
+                                    setFormationAt(index, {
+                                      ...draft,
+                                      level: value,
+                                    })
+                                  }
+                                  placeholder={`1~${formationMaxLevel}`}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </fieldset>
+                    ) : null}
                   </>
                 )}
               </fieldset>

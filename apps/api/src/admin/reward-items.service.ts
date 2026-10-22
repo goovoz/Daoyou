@@ -13,8 +13,17 @@ import {
 import type { ConsumableSpec } from '@daoyou/game-domain/consumables';
 import { randomInt, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import {
+  buildEquipmentOptions,
+  validateEquipmentOverrides,
+} from './equipment-options.js';
 @Injectable()
 export class AdminRewardItemsService {
+  /** [daoyou-fork L1] fork-patch: gm-panel —— 道装非器胚属性选项目录 */
+  equipmentOptions(templateId?: string) {
+    return buildEquipmentOptions(templateId);
+  }
+
   generate(input: z.infer<typeof AdminItemGenerationSchema>) {
     if (input.kind === 'equipment') {
       const result = generateForgedEquipment({
@@ -29,11 +38,29 @@ export class AdminRewardItemsService {
           { error: result.diagnostics[0]?.message ?? '生成道装失败' },
           400,
         );
+      // [daoyou-fork L1] fork-patch: gm-panel —— 覆盖非器胚属性（五行/附灵/器蕴/器诀/阵纹）
+      const instance = result.instance;
+      const overrideErrors = validateEquipmentOverrides({
+        templateId: input.templateId,
+        equipmentLevel: input.equipmentLevel,
+        input,
+      });
+      if (overrideErrors.length)
+        throw new HttpException({ error: overrideErrors[0] }, 400);
+      if (input.element) instance.element = input.element;
+      if (input.attributeBonuses)
+        instance.attributeBonuses =
+          input.attributeBonuses as unknown as typeof instance.attributeBonuses;
+      if (input.essenceIds) instance.essenceIds = [...input.essenceIds];
+      if (input.artId) instance.artId = input.artId;
+      if (input.formationInscriptions)
+        instance.formationInscriptions =
+          input.formationInscriptions as typeof instance.formationInscriptions;
       return {
         item: RewardItemSchema.parse({
           definitionId: 'equipment.v6',
           quantity: 1,
-          instanceData: result.instance,
+          instanceData: instance,
         }),
       };
     }

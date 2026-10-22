@@ -9,7 +9,25 @@ import {
   isOpenEquipmentLevel,
   DAO_WEAPON_TYPES,
 } from '@daoyou/game-domain/equipment';
+import { ELEMENT_VALUES } from '@daoyou/constants/elements';
 import { QUALITY_VALUES } from '@daoyou/constants/qualities';
+
+/** 附灵六维（与 Attributes 键一致）。 */
+export const DAO_EQUIPMENT_BONUS_ATTR_KEYS = [
+  'vitality',
+  'strength',
+  'spirit',
+  'endurance',
+  'speed',
+  'willpower',
+] as const;
+
+export const DAO_FORMATION_SLOT_SCHEMA = z
+  .object({
+    patternId: z.string().min(1),
+    level: z.number().int().min(1).max(32),
+  })
+  .nullable();
 
 export const AdminItemGenerationSchema = z.discriminatedUnion('kind', [
   z
@@ -42,6 +60,23 @@ export const AdminItemGenerationSchema = z.discriminatedUnion('kind', [
       equipmentLevel: z.number().int().refine(isOpenEquipmentLevel),
       baseQuality: z.number().min(0).max(1),
       weaponType: z.enum(DAO_WEAPON_TYPES).optional(),
+      // 以下为 GM 可指定的非器胚属性；缺省时沿用随机生成结果
+      element: z.enum(ELEMENT_VALUES).optional(),
+      attributeBonuses: z
+        .array(
+          z.object({
+            attr: z.enum(DAO_EQUIPMENT_BONUS_ATTR_KEYS),
+            value: z.number().int().min(1).max(1_000_000),
+          }),
+        )
+        .max(2)
+        .optional(),
+      essenceIds: z.array(z.string().min(1)).max(2).optional(),
+      artId: z.string().min(1).optional(),
+      formationInscriptions: z
+        .array(DAO_FORMATION_SLOT_SCHEMA)
+        .length(2)
+        .optional(),
     })
     .strict(),
 ]);
