@@ -25,14 +25,14 @@
         "apps/web/src/routes/admin/_config/nav.ts",
         "apps/web/index.html",
         "apps/api/src/lib/repositories/app-settings-config.ts",
-        "apps/api/src/admin/admin.module.ts",
         "apps/api/src/utils/aiClient.ts",
         "apps/api/src/admin/reward-items.service.ts",
         "apps/api/src/admin/reward-items.controller.ts",
         "packages/contracts/src/adminItemGeneration.ts",
         "apps/web/src/routes/admin/_components/RewardItemPicker.tsx",
+        "drizzle/0068_gm_panel.sql",
         "drizzle/meta/_journal.json",
-        "drizzle/meta/0067_snapshot.json"
+        "drizzle/meta/0068_snapshot.json"
       ],
       "retire": "archive-and-reset"
     }

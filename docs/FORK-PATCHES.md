@@ -36,19 +36,26 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
 | `.github/scripts/detect-gm-panel.sh` | 上游是否已实现 GM 的探测器 |
 | `.github/workflows/sync-upstream.yml` | 每日同步 |
 
-### L1 —— 对上游文件的最小追加（共 6 处）
+### L1 —— 对上游文件的最小追加（共 13 处，均为单行/单块级追加）
 
 | 文件 | 改动 |
 | --- | --- |
 | `apps/api/src/lib/drizzle/schema.ts` | `redeemCodes` 加 4 列 + 2 索引；新增 `gmAuditLogs` 表 |
-| `apps/api/src/admin/admin.module.ts` | 注册 `GmModule` |
+| `apps/api/src/admin/admin.module.ts` | 注册 `GmModule`、LLM 配置控制器与服务 |
+| `apps/api/src/lib/repositories/app-settings-config.ts` | 加 `runtime_llm_config_v1` 键 |
+| `apps/api/src/utils/aiClient.ts` | `resolveModel` 前置「本地接口」分支 |
+| `apps/api/src/admin/reward-items.service.ts` | 道装属性覆盖 + 选项目录透出 |
+| `apps/api/src/admin/reward-items.controller.ts` | 加 `GET equipment-options` |
+| `packages/contracts/src/adminItemGeneration.ts` | equipment 分支放开 baseStats/element/attributeBonuses/essenceIds/artId/formationInscriptions |
 | `apps/api/src/admin/application/RedeemCodeApplicationService.ts` | 领取时校验定向绑定；导出 `isBoundRedeemCode` |
 | `apps/api/src/cultivator/profile.service.ts` | 定向码跳过「炼气后期」公开兑换门槛 |
-| `apps/web/src/route-definitions/admin.tsx` | 注册 3 条路由 |
-| `apps/web/src/routes/admin/_config/nav.ts` | 加 2 个导航项 |
+| `apps/web/src/route-definitions/admin.tsx` | 注册 5 条路由 |
+| `apps/web/src/routes/admin/_config/nav.ts` | 加 3 个导航项 |
+| `apps/web/src/routes/admin/_components/RewardItemPicker.tsx` | 道装属性编辑区 |
+| `apps/web/index.html` | 非安全上下文的 `crypto.randomUUID` polyfill |
 
-> 6 处已超出「3–4 处」的常见阈值，但每处都是单行级追加，且都带锚点。
-> 再增加 L1 前请先考虑能否放进 L0。
+> 13 处已远超「3–4 处」的常见阈值，但每处都是单行/单块级追加，且都带锚点。
+> 再增加 L1 前请先考虑能否放进 L0。完整清单以 `.github/fork-patches.json` 的 `touches` 为准。
 
 ### L2 —— 禁止改动
 
