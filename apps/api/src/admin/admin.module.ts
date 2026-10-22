@@ -24,6 +24,9 @@ import { AdminTowerController } from './tower.controller.js';
 import { AdminTowerService } from './tower.service.js';
 // [daoyou-fork L1] fork-patch: gm-panel —— GM 后台子模块
 import { GmModule } from './gm/gm.module.js';
+// [daoyou-fork L1] fork-patch: local-llm —— 本地模型配置
+import { AdminLlmConfigController } from './llm-config.controller.js';
+import { AdminLlmConfigService } from './llm-config.service.js';
 
 @Module({
   imports: [DatabaseModule, GmModule],
@@ -38,6 +41,7 @@ import { GmModule } from './gm/gm.module.js';
     AdminSectShopController,
     AdminRewardItemsController,
     AdminTowerController,
+    AdminLlmConfigController,
   ],
   providers: [
     AdminSystemMailsService,
@@ -52,6 +56,7 @@ import { GmModule } from './gm/gm.module.js';
     AdminSectShopService,
     AdminRewardItemsService,
     AdminTowerService,
+    AdminLlmConfigService,
   ],
 })
 export class AdminModule {}

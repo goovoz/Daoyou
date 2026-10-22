@@ -9,6 +9,12 @@ apps/api/src/admin/gm/
 apps/web/src/routes/admin/gm/
 apps/web/src/routes/admin/audit/
 apps/web/src/routes/admin/redeem-codes/batch/
+apps/api/src/lib/llm/runtime-config.ts
+apps/api/src/lib/llm/runtime-provider.ts
+apps/api/src/admin/llm-config.service.ts
+apps/api/src/admin/llm-config.controller.ts
+apps/api/src/admin/llm-config-input.ts
+apps/web/src/routes/admin/llm/
 drizzle/0067_gm_panel.sql
 docker/Dockerfile.web
 docker/nginx.conf

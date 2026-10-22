@@ -76,6 +76,12 @@ export const adminNavItems: AdminNavItem[] = [
     description: '查看场景体积、usage 与缓存迹象',
     href: '/admin/llm-metrics',
   },
+  // [daoyou-fork L1] fork-patch: local-llm
+  {
+    title: '模型配置',
+    description: '切换到本地 OpenAI 兼容接口',
+    href: '/admin/llm',
+  },
   {
     title: '在线人数',
     description: '查看实时在线与峰值',

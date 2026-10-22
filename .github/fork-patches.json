@@ -24,6 +24,9 @@
         "apps/web/src/route-definitions/admin.tsx",
         "apps/web/src/routes/admin/_config/nav.ts",
         "apps/web/index.html",
+        "apps/api/src/lib/repositories/app-settings-config.ts",
+        "apps/api/src/admin/admin.module.ts",
+        "apps/api/src/utils/aiClient.ts",
         "drizzle/meta/_journal.json",
         "drizzle/meta/0067_snapshot.json"
       ],

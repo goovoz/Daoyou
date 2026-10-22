@@ -9,6 +9,8 @@ import { getRuntimeEnvironment } from '@server/lib/config/environment.js';
 import { getCurrentContext } from '@server/lib/http/context.js';
 import { recordLlmCallMetric } from '@server/lib/llm/metricsStore.js';
 import { LLM_PROVIDERS } from '@server/lib/llm/providers.js';
+import { getRuntimeLlmConfig } from '@server/lib/llm/runtime-config.js';
+import { createRuntimeLlmModel } from '@server/lib/llm/runtime-provider.js';
 import type {
   LlmCallAttemptMetrics,
   LlmCallMetrics,
@@ -266,6 +268,24 @@ function resolveServerRoute(): LlmRoute {
 
 function resolveModel(sceneId: LlmSceneId): ResolvedModel {
   const requestConfig = getRequestConfig();
+  const debugFetchForRuntime = LLM_DEBUG_ENABLED
+    ? createLlmDebugFetch(sceneId, 'runtime-local')
+    : undefined;
+
+  // [daoyou-fork L1] fork-patch: local-llm
+  // 后台配了本地 OpenAI 兼容接口时优先用它；请求级 BYOK 仍然最优先。
+  const runtimeConfig = requestConfig ? null : getRuntimeLlmConfig();
+  if (runtimeConfig) {
+    return {
+      model: createRuntimeLlmModel({
+        config: runtimeConfig,
+        fetch: debugFetchForRuntime,
+      }),
+      provider: 'deepseek',
+      modelName: runtimeConfig.model,
+    };
+  }
+
   const route = requestConfig
     ? {
         provider: requestConfig.provider,

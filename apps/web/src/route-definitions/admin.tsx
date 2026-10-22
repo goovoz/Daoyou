@@ -93,6 +93,12 @@ export const adminRoutes = (
       lazy={lazyRoute(() => import('@app/routes/admin/llm-metrics/route'))}
       handle={title('LLM 观测')}
     />
+    {/* [daoyou-fork L1] fork-patch: local-llm */}
+    <Route
+      path="llm"
+      lazy={lazyRoute(() => import('@app/routes/admin/llm/route'))}
+      handle={title('模型配置')}
+    />
     <Route
       path="online-users"
       lazy={lazyRoute(() => import('@app/routes/admin/online-users/route'))}
