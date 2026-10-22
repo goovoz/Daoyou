@@ -1,6 +1,7 @@
 import { redeemCodeClaims, redeemCodes } from '@server/lib/drizzle/schema.js';
 import { resolveRedeemCodeRewardAttachments } from '@server/lib/redeem/reward.js';
 import { materializeRewardAttachments } from '@daoyou/game-rules/rewards/materials';
+import type { DbClient } from '@server/lib/drizzle/db.js';
 import { and, eq, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { playerCommandExecutor } from '@server/player/application/state/CommandExecutors.js';
@@ -13,6 +14,18 @@ export class RedeemClaimError extends Error {
   ) {
     super(message);
   }
+}
+
+/**
+ * [daoyou-fork L1] fork-patch: gm-panel
+ * 定向码是 GM 直接指定收件人的补偿，不再套用「炼气后期」的公开兑换门槛。
+ */
+export async function isBoundRedeemCode(code: string, database: DbClient) {
+  const [row] = await database
+    .select({ boundUserId: redeemCodes.boundUserId })
+    .from(redeemCodes)
+    .where(eq(redeemCodes.code, code));
+  return Boolean(row?.boundUserId);
 }
 
 export function claimRedeemCode(args: {
@@ -39,6 +52,11 @@ export function claimRedeemCode(args: {
       }
       if (redeemCode.endsAt && redeemCode.endsAt < now) {
         throw new RedeemClaimError('兑换码已过期');
+      }
+      // [daoyou-fork L1] fork-patch: gm-panel —— 定向码只允许绑定账号领取。
+      // 提示文案与「码不存在」保持一致，避免泄露码是否有效。
+      if (redeemCode.boundUserId && redeemCode.boundUserId !== args.userId) {
+        throw new RedeemClaimError('兑换码无效或不属于当前账号');
       }
       const claimed = await tx.query.redeemCodeClaims.findFirst({
         where: and(

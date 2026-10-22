@@ -21,7 +21,10 @@ import {
   updateCultivatorTitle,
 } from '@server/cultivator/application/CultivatorProfileApplicationService.js';
 import { QiService } from '@server/cultivator/application/QiService.js';
-import { claimRedeemCode } from '@server/admin/application/RedeemCodeApplicationService.js';
+import {
+  claimRedeemCode,
+  isBoundRedeemCode,
+} from '@server/admin/application/RedeemCodeApplicationService.js';
 import { assertLateQiRefining } from '@server/cultivator/application/lateQiAccess.js';
 import { toPlayerStateMutationResponse } from '@server/player/application/state/ResourceMutationResponse.js';
 
@@ -109,11 +112,14 @@ export class ProfileService {
         { error: '兑换码格式错误，仅支持 6-64 位大写字母数字' },
         400,
       );
-    await assertLateQiRefining(
-      actor.cultivatorId,
-      LATE_QI_REDEEM_DENIED,
-      this.database,
-    );
+    // [daoyou-fork L1] fork-patch: gm-panel —— GM 定向码跳过公开兑换的境界门槛
+    if (!(await isBoundRedeemCode(normalizedCode, this.database))) {
+      await assertLateQiRefining(
+        actor.cultivatorId,
+        LATE_QI_REDEEM_DENIED,
+        this.database,
+      );
+    }
     return toPlayerStateMutationResponse(
       await claimRedeemCode({ ...actor, code: normalizedCode }),
     );

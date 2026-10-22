@@ -1352,6 +1352,13 @@ export const redeemCodes = pgTable(
     status: varchar('status', { length: 20 }).notNull().default('active'), // active | disabled
     totalLimit: integer('total_limit'),
     claimedCount: integer('claimed_count').notNull().default(0),
+    // [daoyou-fork L1] fork-patch: gm-panel —— GM 定向兑换码绑定与批次标记
+    // bound_user_id 非空表示该码只允许指定账号领取；bound_cultivator_id 仅作对照与审计展示。
+    // 这里刻意不加外键：角色被删除时若级联置空，定向码会退化成公开码。
+    boundUserId: uuid('bound_user_id'),
+    boundCultivatorId: uuid('bound_cultivator_id'),
+    batchId: uuid('batch_id'),
+    note: varchar('note', { length: 200 }),
     startsAt: timestamp('starts_at'),
     endsAt: timestamp('ends_at'),
     createdBy: uuid('created_by').notNull(),
@@ -1366,6 +1373,8 @@ export const redeemCodes = pgTable(
     uniqueIndex('redeem_codes_code_unique').on(table.code),
     index('redeem_codes_status_created_idx').on(table.status, table.createdAt),
     index('redeem_codes_created_idx').on(table.createdAt),
+    index('redeem_codes_bound_user_idx').on(table.boundUserId),
+    index('redeem_codes_batch_idx').on(table.batchId),
   ],
 );
 
@@ -1393,6 +1402,33 @@ export const redeemCodeClaims = pgTable(
     ),
     index('redeem_code_claims_user_idx').on(table.userId),
     index('redeem_code_claims_code_idx').on(table.redeemCodeId),
+  ],
+);
+
+// [daoyou-fork L1] fork-patch: gm-panel —— GM 操作审计
+// 只记录 GM 主动发起的高危动作（定向发货、批量发码），与业务事件表分开，便于单独归档。
+export const gmAuditLogs = pgTable(
+  'wanjiedaoyou_gm_audit_logs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    actorUserId: text('actor_user_id').notNull(),
+    actorEmail: text('actor_email'),
+    action: varchar('action', { length: 64 }).notNull(), // gm.deliver | gm.redeem-codes.batch
+    requestId: uuid('request_id'),
+    targetUserId: uuid('target_user_id'),
+    targetCultivatorId: uuid('target_cultivator_id'),
+    targetCultivatorName: varchar('target_cultivator_name', { length: 100 }),
+    reason: varchar('reason', { length: 200 }).notNull(),
+    payload: jsonb('payload').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('gm_audit_actor_created_idx').on(table.actorUserId, table.createdAt),
+    index('gm_audit_target_created_idx').on(
+      table.targetCultivatorId,
+      table.createdAt,
+    ),
+    index('gm_audit_created_idx').on(table.createdAt),
   ],
 );
 

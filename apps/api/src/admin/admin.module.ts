@@ -22,9 +22,11 @@ import { AdminSystemMailsController } from './system-mails.controller.js';
 import { AdminSystemMailsService } from './system-mails.service.js';
 import { AdminTowerController } from './tower.controller.js';
 import { AdminTowerService } from './tower.service.js';
+// [daoyou-fork L1] fork-patch: gm-panel —— GM 后台子模块
+import { GmModule } from './gm/gm.module.js';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, GmModule],
   controllers: [
     AdminSystemMailsController,
     AdminItemLibraryController,

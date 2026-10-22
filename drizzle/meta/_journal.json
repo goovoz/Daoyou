@@ -470,6 +470,13 @@
       "when": 1792056360753,
       "tag": "0066_strange_the_hood",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1792642834412,
+      "tag": "0067_gm_panel",
+      "breakpoints": true
     }
   ]
 }

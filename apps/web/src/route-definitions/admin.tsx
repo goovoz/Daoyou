@@ -65,6 +65,24 @@ export const adminRoutes = (
       lazy={lazyRoute(() => import('@app/routes/admin/redeem-codes/new/route'))}
       handle={title('新建兑换码')}
     />
+    {/* [daoyou-fork L1] fork-patch: gm-panel */}
+    <Route
+      path="redeem-codes/batch"
+      lazy={lazyRoute(
+        () => import('@app/routes/admin/redeem-codes/batch/route'),
+      )}
+      handle={title('批量生成兑换码')}
+    />
+    <Route
+      path="gm"
+      lazy={lazyRoute(() => import('@app/routes/admin/gm/route'))}
+      handle={title('定向发货')}
+    />
+    <Route
+      path="audit"
+      lazy={lazyRoute(() => import('@app/routes/admin/audit/route'))}
+      handle={title('GM 审计')}
+    />
     <Route
       path="sponsorship"
       lazy={lazyRoute(() => import('@app/routes/admin/sponsorship/route'))}

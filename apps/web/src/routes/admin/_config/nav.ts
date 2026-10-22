@@ -55,6 +55,17 @@ export const adminNavItems: AdminNavItem[] = [
     description: '活动兑换码创建与停用',
     href: '/admin/redeem-codes',
   },
+  // [daoyou-fork L1] fork-patch: gm-panel
+  {
+    title: '定向发货',
+    description: '按角色直接投递奖励邮件',
+    href: '/admin/gm',
+  },
+  {
+    title: 'GM 审计',
+    description: '发货与发码操作留痕',
+    href: '/admin/audit',
+  },
   {
     title: '功德簿管理',
     description: '订单处理、方案配置与人工补记',
