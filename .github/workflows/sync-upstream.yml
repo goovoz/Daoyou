@@ -1,0 +1,161 @@
+# [daoyou-fork] 每日同步上游
+#
+# 策略说明：本仓用「merge 上游」而不是 rebase 重放补丁。
+# 原因：master 是公开分支且已被 clone，rebase 会改写公共历史、必须 force push。
+# 代价：每次同步多一个 merge 提交；补丁仍可通过 commit message 里的 Fork-Patch trailer 识别。
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'report = 只扫描不落分支；pr = 开 PR；direct = 直接推 master'
+        type: choice
+        options: [report, pr, direct]
+        default: pr
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 拉取上游
+        id: fetch
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/ChurchTao/Daoyou.git
+          git fetch --no-tags --prune upstream master
+          UP_SHA=$(git rev-parse FETCH_HEAD)
+          OLD_SHA=$(git rev-parse origin/upstream-dev 2>/dev/null || echo none)
+          echo "upstream $OLD_SHA -> $UP_SHA"
+          echo "sha=$UP_SHA" >> "$GITHUB_OUTPUT"
+          if [ "$UP_SHA" = "$OLD_SHA" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 更新 upstream-dev 镜像
+        if: steps.fetch.outputs.changed == 'true' && inputs.mode != 'report'
+        run: |
+          set -euo pipefail
+          git checkout -B upstream-dev "${{ steps.fetch.outputs.sha }}"
+          git push origin upstream-dev --force
+
+      - name: 接口面扫描（上游旧版 vs 新版）
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/old /tmp/new
+          OLD_REF=origin/upstream-dev
+          git rev-parse "$OLD_REF" >/dev/null 2>&1 || OLD_REF="${{ steps.fetch.outputs.sha }}^"
+          git archive "$OLD_REF" | tar -x -C /tmp/old
+          git archive "${{ steps.fetch.outputs.sha }}" | tar -x -C /tmp/new
+          bash .github/scripts/scan-interface-surface.sh /tmp/old > /tmp/scan-old.txt 2>&1 || true
+          bash .github/scripts/scan-interface-surface.sh /tmp/new > /tmp/scan-new.txt 2>&1 || true
+          echo "## 接口面变化" >> "$GITHUB_STEP_SUMMARY"
+          if diff -u /tmp/scan-old.txt /tmp/scan-new.txt > /tmp/scan.diff; then
+            echo "无变化。" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '```diff' >> "$GITHUB_STEP_SUMMARY"
+            head -120 /tmp/scan.diff >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 风险扫描
+        id: risk
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          set -uo pipefail
+          TOUCHES=$(node -e "
+            const m=require('./.github/fork-patches.json');
+            console.log(m.patches.flatMap(p=>p.touches).join('\n'));
+          ")
+          CHANGED=$(git diff --name-only origin/upstream-dev "${{ steps.fetch.outputs.sha }}" 2>/dev/null || \
+                    git diff --name-only "${{ steps.fetch.outputs.sha }}^" "${{ steps.fetch.outputs.sha }}")
+          HIT=$(comm -12 <(printf '%s\n' "$TOUCHES" | sort -u) <(printf '%s\n' "$CHANGED" | sort -u) || true)
+          echo "## 风险扫描" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$HIT" ]; then
+            echo "以下补丁触碰的文件被上游改动，需人工复核：" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "$HIT" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "补丁触碰文件未被上游改动。" >> "$GITHUB_STEP_SUMMARY"
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+          fi
+          if printf '%s\n' "$CHANGED" | grep -qx 'LICENSE'; then
+            echo "⚠️ LICENSE 被改动，禁止静默覆盖。" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 探测上游是否已实现 GM 面板
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/probe
+          git archive "${{ steps.fetch.outputs.sha }}" | tar -x -C /tmp/probe
+          RESULT=$(bash .github/scripts/detect-gm-panel.sh /tmp/probe || true)
+          echo "## 补丁存活探测（gm-panel）" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESULT" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 合并到同步分支
+        id: merge
+        if: steps.fetch.outputs.changed == 'true' && inputs.mode != 'report'
+        run: |
+          set -uo pipefail
+          BRANCH="sync/$(date -u +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH" origin/master
+          if git merge --no-edit "${{ steps.fetch.outputs.sha }}"; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            # 不硬来：把冲突标记原样提交，交人处理
+            git add -A
+            git commit -m "chore(sync): 上游 ${{ steps.fetch.outputs.sha }} 合并产生冲突（需人工）" || true
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+          git push origin "$BRANCH" --force-with-lease
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: 直接推送 master
+        if: steps.merge.outputs.conflict == 'false' && inputs.mode == 'direct'
+        run: |
+          set -euo pipefail
+          git checkout master
+          git merge --ff-only "${{ steps.merge.outputs.branch }}" 2>/dev/null || git merge --no-edit "${{ steps.merge.outputs.branch }}"
+          git push origin master
+
+      - name: 开 PR
+        if: steps.merge.outputs.branch != '' && inputs.mode != 'direct'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          TITLE="chore(sync): 同步上游 ${{ steps.fetch.outputs.sha }}"
+          if [ "${{ steps.merge.outputs.conflict }}" = "true" ]; then
+            TITLE="[需人工] $TITLE（存在冲突）"
+          elif [ "${{ steps.risk.outputs.hit }}" = "true" ]; then
+            TITLE="$TITLE（补丁文件受影响）"
+          fi
+          gh pr create --base master --head "${{ steps.merge.outputs.branch }}" \
+            --title "$TITLE" --body "自动同步，详见 job summary 的接口面扫描与补丁探测结果。" || \
+            echo "PR 创建失败：请确认仓库已开启 Allow GitHub Actions to create and approve pull requests"

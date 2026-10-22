@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "upstream": {
+    "repo": "ChurchTao/Daoyou",
+    "branch": "master"
+  },
+  "fork": {
+    "defaultBranch": "master",
+    "note": "本 fork 使用 merge 式同步（非 rebase），补丁靠 commit trailer 识别。"
+  },
+  "patches": [
+    {
+      "id": "gm-panel",
+      "status": "active",
+      "summary": "管理员 GM 面板：定向发货（系统邮件通道）+ 批量兑换码（公开码/定向码）+ GM 审计",
+      "trailer": "Fork-Patch: gm-panel",
+      "detector": ".github/scripts/detect-gm-panel.sh",
+      "verify": "pnpm run typecheck",
+      "touches": [
+        "apps/api/src/lib/drizzle/schema.ts",
+        "apps/api/src/admin/admin.module.ts",
+        "apps/api/src/admin/application/RedeemCodeApplicationService.ts",
+        "apps/api/src/cultivator/profile.service.ts",
+        "apps/web/src/route-definitions/admin.tsx",
+        "apps/web/src/routes/admin/_config/nav.ts",
+        "drizzle/meta/_journal.json",
+        "drizzle/meta/0067_snapshot.json"
+      ],
+      "retire": "archive-and-reset"
+    }
+  ]
+}

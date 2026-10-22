@@ -1,0 +1,18 @@
+# [daoyou-fork] 自有文件清单
+#
+# 只登记「新增」的路径（L0）。重建 fork 时按此清单从快照回贴，缺失即视为异常。
+# 一行一个路径，支持文件与目录；# 开头为注释；空行忽略。
+#
+# 对上游文件的修改（L1）不在这里登记，登记在 .github/fork-patches.json 的 touches 字段。
+
+apps/api/src/admin/gm/
+apps/web/src/routes/admin/gm/
+apps/web/src/routes/admin/audit/
+apps/web/src/routes/admin/redeem-codes/batch/
+drizzle/0067_gm_panel.sql
+docs/FORK-PATCHES.md
+.github/fork-paths.txt
+.github/fork-patches.json
+.github/scripts/scan-interface-surface.sh
+.github/scripts/detect-gm-panel.sh
+.github/workflows/sync-upstream.yml
