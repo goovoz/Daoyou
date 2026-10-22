@@ -54,9 +54,10 @@ const families = {
   longevity: '延寿',
   hybrid: '复合',
 };
-// [daoyou-fork L1] fork-patch: gm-panel —— 道装非器胚属性选项
+// [daoyou-fork L1] fork-patch: gm-panel —— 道装可指定属性选项
 type EquipmentOptions = {
   elements: string[];
+  baseStatRanges: Array<{ attr: string; min: number; max: number }>;
   bonusAttrs: Array<{ value: string; label: string }>;
   formationLevelLimits: Array<{ equipmentLevel: number; maxLevel: number }>;
   inscriptions: Array<{
@@ -66,6 +67,24 @@ type EquipmentOptions = {
   }>;
   essences: Array<{ id: string; name: string; description: string }>;
   arts: Array<{ id: string; name: string; description: string }>;
+};
+
+const PANEL_ATTR_LABELS: Record<string, string> = {
+  physicalAtk: '物攻',
+  physicalDef: '物防',
+  magicAtk: '法攻',
+  magicDef: '法防',
+  maxHp: '气血',
+  maxMp: '法力',
+  healPower: '治疗',
+  speed: '速度',
+  hit: '命中',
+  dodge: '闪避',
+  critRate: '物暴',
+  spellCritRate: '法暴',
+  physicalFuryRate: '物怒',
+  sealHit: '封禁命中',
+  sealResist: '封禁抵抗',
 };
 
 type BonusDraft = { attr: string; value: string };
@@ -123,6 +142,10 @@ export function RewardItemPicker({
   const [formationB, setFormationB] =
     useState<FormationDraft>(EMPTY_FORMATION);
   const [eqOptions, setEqOptions] = useState<EquipmentOptions | null>(null);
+  const [baseDrafts, setBaseDrafts] = useState<Record<string, string>>({});
+  const baseStatOverrides = Object.entries(baseDrafts)
+    .filter(([, value]) => value.trim() !== '')
+    .map(([attr, value]) => ({ attr, value: Number(value) }));
   const bonusDrafts = [bonusA, bonusB]
     .filter((draft) => draft.attr && draft.value.trim() !== '')
     .map((draft) => ({ attr: draft.attr, value: Number(draft.value) }));
@@ -202,14 +225,22 @@ export function RewardItemPicker({
       controller.abort();
     };
   }, [open, isLibrary, kind, query, page, materialType]);
-  // [daoyou-fork L1] fork-patch: gm-panel —— 拉取道装可选的非器胚属性
+  // [daoyou-fork L1] fork-patch: gm-panel —— 拉取道装可指定的属性
   useEffect(() => {
     if (!open || kind !== 'equipment') return;
     let cancelled = false;
     void (async () => {
       try {
+        const params = new URLSearchParams({
+          templateId,
+          equipmentLevel: level,
+          baseQuality,
+        });
+        if (templateId.includes('.weapon.')) {
+          params.set('weaponType', weapon);
+        }
         const response = await apiFetch(
-          `/api/admin/reward-items/equipment-options?templateId=${encodeURIComponent(templateId)}`,
+          `/api/admin/reward-items/equipment-options?${params.toString()}`,
         );
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? '加载道装选项失败');
@@ -224,6 +255,7 @@ export function RewardItemPicker({
         );
         setFormationA(EMPTY_FORMATION);
         setFormationB(EMPTY_FORMATION);
+        setBaseDrafts({});
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : '加载道装选项失败');
@@ -233,7 +265,7 @@ export function RewardItemPicker({
     return () => {
       cancelled = true;
     };
-  }, [open, kind, templateId]);
+  }, [open, kind, templateId, level, baseQuality, weapon]);
   const catalogue: ItemGrant[] = isGenerator
     ? generated
         .filter((entry) => entry.kind === kind)
@@ -270,7 +302,10 @@ export function RewardItemPicker({
               ...(templateId.includes('.weapon.')
                 ? { weaponType: weapon }
                 : {}),
-              // [daoyou-fork L1] fork-patch: gm-panel —— 非器胚属性
+              // [daoyou-fork L1] fork-patch: gm-panel —— 器胚与非器胚属性
+              ...(baseStatOverrides.length
+                ? { baseStats: baseStatOverrides }
+                : {}),
               ...(element ? { element } : {}),
               ...(bonusDrafts.length
                 ? { attributeBonuses: bonusDrafts }
@@ -588,7 +623,30 @@ export function RewardItemPicker({
                         ))}
                       </InkSelect>
                     )}
-                    {/* [daoyou-fork L1] fork-patch: gm-panel —— 非器胚属性 */}
+                    {/* [daoyou-fork L1] fork-patch: gm-panel —— 器胚与非器胚属性 */}
+                    {eqOptions?.baseStatRanges.length ? (
+                      <fieldset className="border-ink/15 rounded border p-2">
+                        <legend className="text-ink/60 px-1 text-xs">
+                          器胚属性（留空则按区间随机）
+                        </legend>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {eqOptions.baseStatRanges.map((item) => (
+                            <InkInput
+                              key={item.attr}
+                              label={`${PANEL_ATTR_LABELS[item.attr] ?? item.attr}（${item.min}~${item.max}）`}
+                              value={baseDrafts[item.attr] ?? ''}
+                              onChange={(value) =>
+                                setBaseDrafts((prev) => ({
+                                  ...prev,
+                                  [item.attr]: value,
+                                }))
+                              }
+                              placeholder={`${item.min}~${item.max}`}
+                            />
+                          ))}
+                        </div>
+                      </fieldset>
+                    ) : null}
                     <InkSelect
                       label="五行属性"
                       value={element}

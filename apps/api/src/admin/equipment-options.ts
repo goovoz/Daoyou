@@ -16,6 +16,7 @@ import {
   DAO_EQUIPMENT_ESSENCES_V1,
 } from '@daoyou/game-content/equipment/special';
 import { ELEMENT_VALUES } from '@daoyou/constants/elements';
+import { DAO_WEAPONS } from '@daoyou/game-content/equipment/weapons';
 import type { DaoEquipmentSlot } from '@daoyou/game-domain/equipment';
 
 export const BONUS_ATTR_LABELS: Record<string, string> = {
@@ -57,15 +58,82 @@ export function bonusValueRange(equipmentLevel: number): {
   };
 }
 
-export function buildEquipmentOptions(templateId?: string) {
+/**
+ * 器胚单字段区间：先按材料品阶进度在 normal→enhanced 之间插值，再乘器形系数。
+ * 与 game-rules/equipment/ranges.ts 的取整顺序保持一致。
+ */
+export function baseStatRange(params: {
+  templateId: string;
+  equipmentLevel: number;
+  baseQuality: number;
+  weaponType?: string;
+  attr: string;
+}): { min: number; max: number } | null {
+  const template = daoEquipmentTemplateOf(params.templateId);
+  if (!template) return null;
+  const rule = template.baseStats.find((item) => item.attr === params.attr);
+  if (!rule) return null;
+  const range = rule.ranges.find((r) => r.level === params.equipmentLevel);
+  if (!range) return null;
+
+  const quality = Math.min(1, Math.max(0, params.baseQuality));
+  const weaponFactor =
+    params.weaponType && params.attr === 'physicalAtk'
+      ? (DAO_WEAPONS as unknown as Record<string, { physicalAtk?: number }>)[
+          params.weaponType
+        ]?.physicalAtk
+      : params.weaponType && params.attr === 'magicAtk'
+        ? (DAO_WEAPONS as unknown as Record<string, { magicAtk?: number }>)[
+            params.weaponType
+          ]?.magicAtk
+        : undefined;
+  const factor = weaponFactor ?? 1;
+
+  const min = Math.round(
+    range.normal[0] + quality * (range.enhanced[0] - range.normal[0]),
+  );
+  const max = Math.round(
+    range.normal[1] + quality * (range.enhanced[1] - range.normal[1]),
+  );
+  return {
+    min: Math.round(min * factor),
+    max: Math.round(max * factor),
+  };
+}
+
+export function buildEquipmentOptions(
+  templateId?: string,
+  options?: {
+    equipmentLevel?: number;
+    baseQuality?: number;
+    weaponType?: string;
+  },
+) {
   const template = templateId ? daoEquipmentTemplateOf(templateId) : undefined;
   const slot: DaoEquipmentSlot | undefined = template?.slot;
 
   const essenceIds = slot ? equipmentEssencePool(slot) : [];
   const artIds = slot ? equipmentArtPool(slot) : [];
 
+  const baseStatRanges =
+    template && options?.equipmentLevel
+      ? template.baseStats.flatMap((rule) => {
+          const range = baseStatRange({
+            templateId: template.id,
+            equipmentLevel: options.equipmentLevel!,
+            baseQuality: options.baseQuality ?? 0,
+            weaponType: options.weaponType,
+            attr: rule.attr,
+          });
+          return range
+            ? [{ attr: rule.attr as string, min: range.min, max: range.max }]
+            : [];
+        })
+      : [];
+
   return {
     elements: [...ELEMENT_VALUES],
+    baseStatRanges,
     bonusAttrs: Object.entries(BONUS_ATTR_LABELS).map(([value, label]) => ({
       value,
       label,
@@ -106,6 +174,7 @@ export function buildEquipmentOptions(templateId?: string) {
 }
 
 export type EquipmentOverrideInput = {
+  baseStats?: Array<{ attr: string; value: number }>;
   element?: string;
   attributeBonuses?: Array<{ attr: string; value: number }>;
   essenceIds?: string[];
@@ -117,18 +186,44 @@ export type EquipmentOverrideInput = {
 };
 
 /**
- * 校验 GM 指定的非器胚属性是否合法，返回中文错误列表（空数组表示通过）。
- * 规则来源：附灵六维与区间、器蕴/器诀部位限制、阵纹部位与等级上限。
+ * 校验 GM 指定的属性是否合法，返回中文错误列表（空数组表示通过）。
+ * 规则来源：器胚境界区间、附灵六维区间、器蕴/器诀部位限制、阵纹部位与等级上限。
  */
 export function validateEquipmentOverrides(params: {
   templateId: string;
   equipmentLevel: number;
+  baseQuality?: number;
+  weaponType?: string;
   input: EquipmentOverrideInput;
 }): string[] {
   const errors: string[] = [];
   const template = daoEquipmentTemplateOf(params.templateId);
   if (!template) return ['未知道装模板'];
   const slot = template.slot;
+
+  if (params.input.baseStats) {
+    const seen = new Set<string>();
+    for (const stat of params.input.baseStats) {
+      const range = baseStatRange({
+        templateId: params.templateId,
+        equipmentLevel: params.equipmentLevel,
+        baseQuality: params.baseQuality ?? 0,
+        weaponType: params.weaponType,
+        attr: stat.attr,
+      });
+      if (!range) {
+        errors.push(`该部位没有器胚字段：${stat.attr}`);
+        continue;
+      }
+      if (seen.has(stat.attr)) errors.push('器胚字段不能重复');
+      seen.add(stat.attr);
+      if (stat.value < range.min || stat.value > range.max) {
+        errors.push(
+          `器胚「${stat.attr}」需在 ${range.min}~${range.max}（${params.equipmentLevel} 阶，品阶进度 ${(params.baseQuality ?? 0).toFixed(2)}）`,
+        );
+      }
+    }
+  }
 
   if (params.input.attributeBonuses) {
     const list = params.input.attributeBonuses;

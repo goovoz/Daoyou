@@ -19,9 +19,18 @@ import {
 } from './equipment-options.js';
 @Injectable()
 export class AdminRewardItemsService {
-  /** [daoyou-fork L1] fork-patch: gm-panel —— 道装非器胚属性选项目录 */
-  equipmentOptions(templateId?: string) {
-    return buildEquipmentOptions(templateId);
+  /** [daoyou-fork L1] fork-patch: gm-panel —— 道装可指定属性的选项目录 */
+  equipmentOptions(query: {
+    templateId?: string;
+    equipmentLevel?: number;
+    baseQuality?: number;
+    weaponType?: string;
+  }) {
+    return buildEquipmentOptions(query.templateId, {
+      equipmentLevel: query.equipmentLevel,
+      baseQuality: query.baseQuality,
+      weaponType: query.weaponType,
+    });
   }
 
   generate(input: z.infer<typeof AdminItemGenerationSchema>) {
@@ -43,10 +52,22 @@ export class AdminRewardItemsService {
       const overrideErrors = validateEquipmentOverrides({
         templateId: input.templateId,
         equipmentLevel: input.equipmentLevel,
+        baseQuality: input.baseQuality,
+        weaponType: input.weaponType,
         input,
       });
       if (overrideErrors.length)
         throw new HttpException({ error: overrideErrors[0] }, 400);
+      if (input.baseStats) {
+        const byAttr = new Map(
+          input.baseStats.map((stat) => [stat.attr, stat.value]),
+        );
+        instance.baseStats = instance.baseStats.map((stat) =>
+          byAttr.has(stat.attr)
+            ? { ...stat, value: byAttr.get(stat.attr)! }
+            : stat,
+        );
+      }
       if (input.element) instance.element = input.element;
       if (input.attributeBonuses)
         instance.attributeBonuses =

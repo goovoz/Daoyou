@@ -29,6 +29,25 @@ export const DAO_FORMATION_SLOT_SCHEMA = z
   })
   .nullable();
 
+/** 器胚面板字段（与 CombatV6PanelAttr 一致）。 */
+export const DAO_EQUIPMENT_PANEL_ATTR_KEYS = [
+  'physicalAtk',
+  'physicalDef',
+  'magicAtk',
+  'magicDef',
+  'maxHp',
+  'maxMp',
+  'healPower',
+  'speed',
+  'hit',
+  'dodge',
+  'critRate',
+  'spellCritRate',
+  'physicalFuryRate',
+  'sealHit',
+  'sealResist',
+] as const;
+
 export const AdminItemGenerationSchema = z.discriminatedUnion('kind', [
   z
     .object({
@@ -61,6 +80,15 @@ export const AdminItemGenerationSchema = z.discriminatedUnion('kind', [
       baseQuality: z.number().min(0).max(1),
       weaponType: z.enum(DAO_WEAPON_TYPES).optional(),
       // 以下为 GM 可指定的非器胚属性；缺省时沿用随机生成结果
+      baseStats: z
+        .array(
+          z.object({
+            attr: z.enum(DAO_EQUIPMENT_PANEL_ATTR_KEYS),
+            value: z.number().int().min(0).max(1_000_000),
+          }),
+        )
+        .max(4)
+        .optional(),
       element: z.enum(ELEMENT_VALUES).optional(),
       attributeBonuses: z
         .array(

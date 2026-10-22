@@ -26,8 +26,21 @@ export class AdminRewardItemsController {
 
   /** [daoyou-fork L1] fork-patch: gm-panel —— 道装可指定属性的选项目录 */
   @Get('equipment-options')
-  equipmentOptions(@FirstQuery('templateId') templateId?: string) {
-    return { success: true, data: this.rewards.equipmentOptions(templateId) };
+  equipmentOptions(
+    @FirstQuery('templateId') templateId?: string,
+    @FirstQuery('equipmentLevel') equipmentLevel?: string,
+    @FirstQuery('baseQuality') baseQuality?: string,
+    @FirstQuery('weaponType') weaponType?: string,
+  ) {
+    return {
+      success: true,
+      data: this.rewards.equipmentOptions({
+        templateId,
+        equipmentLevel: equipmentLevel ? Number(equipmentLevel) : undefined,
+        baseQuality: baseQuality ? Number(baseQuality) : undefined,
+        weaponType,
+      }),
+    };
   }
 
   @Post('generate')
