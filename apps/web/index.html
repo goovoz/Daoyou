@@ -43,6 +43,47 @@
     <meta name="apple-mobile-web-app-title" content="万界道友" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <script>
+      // [daoyou-fork L1] fork-patch: insecure-context-uuid
+      // crypto.randomUUID 只在「安全上下文」（HTTPS / localhost）存在，用 http://<局域网IP> 访问时它是 undefined，
+      // 会导致前端所有需要 requestId 的操作抛 "crypto.randomUUID is not a function"。
+      // crypto.getRandomValues 不受该限制，这里补一个等价强度的 UUID v4。
+      (function () {
+        var c = window.crypto;
+        if (!c || typeof c.randomUUID === 'function') return;
+        if (typeof c.getRandomValues !== 'function') return;
+        var bytes = new Uint8Array(16);
+        var generate = function () {
+          c.getRandomValues(bytes);
+          bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+          bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10
+          var hex = [];
+          for (var i = 0; i < 16; i += 1) {
+            hex.push((bytes[i] + 0x100).toString(16).slice(1));
+          }
+          return (
+            hex.slice(0, 4).join('') +
+            '-' +
+            hex.slice(4, 6).join('') +
+            '-' +
+            hex.slice(6, 8).join('') +
+            '-' +
+            hex.slice(8, 10).join('') +
+            '-' +
+            hex.slice(10, 16).join('')
+          );
+        };
+        try {
+          Object.defineProperty(c, 'randomUUID', {
+            value: generate,
+            configurable: true,
+            writable: true,
+          });
+        } catch (error) {
+          c.randomUUID = generate;
+        }
+      })();
+    </script>
+    <script>
       if (navigator.standalone === true) {
         document.documentElement.dataset.iosStandalone = '';
       }
