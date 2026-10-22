@@ -87,9 +87,9 @@ export const AdminItemGenerationSchema = z.discriminatedUnion('kind', [
             value: z.number().int().min(0).max(1_000_000),
           }),
         )
-        .max(4)
         .optional(),
       element: z.enum(ELEMENT_VALUES).optional(),
+      // 条数上限交给服务端校验器，以返回可读的 400（此处 ZodPipe 会统一抛 500）
       attributeBonuses: z
         .array(
           z.object({
@@ -97,9 +97,8 @@ export const AdminItemGenerationSchema = z.discriminatedUnion('kind', [
             value: z.number().int().min(1).max(1_000_000),
           }),
         )
-        .max(2)
         .optional(),
-      essenceIds: z.array(z.string().min(1)).max(2).optional(),
+      essenceIds: z.array(z.string().min(1)).optional(),
       artId: z.string().min(1).optional(),
       formationInscriptions: z
         .array(DAO_FORMATION_SLOT_SCHEMA)
