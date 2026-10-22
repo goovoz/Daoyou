@@ -63,10 +63,16 @@ type EquipmentOptions = {
   inscriptions: Array<{
     id: string;
     name: string;
+    attr: string;
     valuePerLevel: number;
   }>;
   essences: Array<{ id: string; name: string; description: string }>;
-  arts: Array<{ id: string; name: string; description: string }>;
+  arts: Array<{
+    id: string;
+    name: string;
+    description: string;
+    rageCost: number;
+  }>;
   baseBonusRanges?: Array<{ level: number; min: number; max: number }>;
 };
 
@@ -169,6 +175,7 @@ export function RewardItemPicker({
   const bonusHint = bonusRange
     ? `数值范围 ${bonusRange.min}~${bonusRange.max}`
     : '当前境界未开放';
+  const selectedArt = eqOptions?.arts.find((item) => item.id === artId);
   const setBonusAt = (index: number, next: BonusDraft) => {
     if (index === 0) setBonusA(next);
     else setBonusB(next);
@@ -703,45 +710,62 @@ export function RewardItemPicker({
                     {eqOptions?.essences.length ? (
                       <fieldset className="border-ink/15 rounded border p-2">
                         <legend className="text-ink/60 px-1 text-xs">
-                          器蕴（最多 2 条）
+                          器蕴（最多 2 条，效果已按内容包渲染）
                         </legend>
-                        <div className="grid gap-1">
-                          {eqOptions.essences.map((item) => (
-                            <label
-                              key={item.id}
-                              className="text-ink/80 flex items-center gap-2 text-sm"
-                              title={item.description}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={essenceIds.includes(item.id)}
-                                onChange={(event) => {
-                                  if (event.target.checked) {
-                                    setEssenceIds((prev) =>
-                                      prev.length >= 2
-                                        ? prev
-                                        : [...prev, item.id],
-                                    );
-                                  } else {
-                                    setEssenceIds((prev) =>
-                                      prev.filter((id) => id !== item.id),
-                                    );
-                                  }
-                                }}
-                              />
-                              {item.name}
-                            </label>
-                          ))}
+                        <div className="grid gap-0.5">
+                          {eqOptions.essences.map((item) => {
+                            const checked = essenceIds.includes(item.id);
+                            return (
+                              <label
+                                key={item.id}
+                                className={`flex items-start gap-2 rounded px-1 py-0.5 text-sm ${checked ? 'bg-ink/5' : ''}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="mt-1"
+                                  checked={checked}
+                                  onChange={(event) => {
+                                    if (event.target.checked) {
+                                      setEssenceIds((prev) =>
+                                        prev.length >= 2
+                                          ? prev
+                                          : [...prev, item.id],
+                                      );
+                                    } else {
+                                      setEssenceIds((prev) =>
+                                        prev.filter((id) => id !== item.id),
+                                      );
+                                    }
+                                  }}
+                                />
+                                <span className="text-ink w-[3.4rem] shrink-0">
+                                  {item.name}
+                                </span>
+                                <span className="text-ink-secondary flex-1 text-[0.82rem] leading-snug">
+                                  {item.description}
+                                </span>
+                              </label>
+                            );
+                          })}
                         </div>
                       </fieldset>
                     ) : null}
 
                     {eqOptions?.arts.length ? (
-                      <InkSelect label="器诀" value={artId} onChange={setArtId}>
+                      <InkSelect
+                        label="器诀"
+                        value={artId}
+                        onChange={setArtId}
+                        hint={
+                          selectedArt
+                            ? `战意 ${selectedArt.rageCost} · ${selectedArt.description}`
+                            : '未选器诀（法器不携带主动技能）'
+                        }
+                      >
                         <option value="">无</option>
                         {eqOptions.arts.map((item) => (
                           <option key={item.id} value={item.id}>
-                            {item.name}
+                            {item.name}（战意 {item.rageCost}）
                           </option>
                         ))}
                       </InkSelect>
@@ -755,10 +779,23 @@ export function RewardItemPicker({
                         {[0, 1].map((index) => {
                           const draft =
                             index === 0 ? formationA : formationB;
+                          const pattern = eqOptions.inscriptions.find(
+                            (item) => item.id === draft.patternId,
+                          );
+                          const lv = Number(draft.level);
+                          const validLv =
+                            Number.isInteger(lv) && lv >= 1 && lv <= formationMaxLevel;
+                          const effectText = !pattern
+                            ? '空孔，不提供属性'
+                            : validLv
+                              ? `${PANEL_ATTR_LABELS[pattern.attr] ?? pattern.attr} +${
+                                  pattern.valuePerLevel * lv
+                                }（${pattern.valuePerLevel}/级 × ${lv} 级）`
+                              : `${PANEL_ATTR_LABELS[pattern.attr] ?? pattern.attr} ${pattern.valuePerLevel}/级（等级需 1~${formationMaxLevel}）`;
                           return (
                             <div
                               key={index}
-                              className="flex flex-wrap gap-2 py-1"
+                              className="flex flex-wrap items-start gap-2 py-1"
                             >
                               <div className="min-w-[10rem] flex-1">
                                 <InkSelect
@@ -781,7 +818,7 @@ export function RewardItemPicker({
                                   )}
                                 </InkSelect>
                               </div>
-                              <div className="min-w-[6rem] flex-1">
+                              <div className="w-[5.5rem] shrink-0">
                                 <InkInput
                                   label="等级"
                                   value={draft.level}
@@ -793,6 +830,16 @@ export function RewardItemPicker({
                                   }
                                   placeholder={`1~${formationMaxLevel}`}
                                 />
+                              </div>
+                              <div
+                                className={`flex-[2] pb-1.5 text-[0.82rem] leading-snug ${
+                                  pattern && !validLv
+                                    ? 'text-crimson'
+                                    : 'text-ink-secondary'
+                                }`}
+                                style={{ minWidth: '9rem' }}
+                              >
+                                {effectText}
                               </div>
                             </div>
                           );

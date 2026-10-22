@@ -31,7 +31,7 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
 | `apps/web/src/routes/admin/gm/` | 定向发货页 + 角色选择器 |
 | `apps/web/src/routes/admin/audit/` | GM 审计页 |
 | `apps/web/src/routes/admin/redeem-codes/batch/` | 批量生成兑换码页 |
-| `drizzle/0067_gm_panel.sql` | 迁移：兑换码定向列 + 审计表 |
+| `drizzle/0068_gm_panel.sql` | 迁移：兑换码定向列 + 审计表（原 0067，因上游撞号顺延） |
 | `.github/scripts/scan-interface-surface.sh` | 接口面快照扫描 |
 | `.github/scripts/detect-gm-panel.sh` | 上游是否已实现 GM 的探测器 |
 | `.github/workflows/sync-upstream.yml` | 每日同步 |
@@ -67,6 +67,93 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
 6. `checkout -B sync/<日期> origin/master` + `git merge 上游`
    - 无冲突 → 推分支 + 开 PR（`direct` 模式直接推 master）
    - 有冲突 → **不硬来**，把冲突标记原样提交，推分支并开 `[需人工]` PR
+
+## 迁移编号冲突流程（0067 撞车实录）
+
+fork 的迁移编号和上游**独立递增**，两边都会自然用到同一个号。2026-10-22 同步时，
+上游 `0067_sponsorship_order_recipients`（when `1792637821975`）撞上了我们的
+`0067_gm_panel`（when `1792642834412`）。按下面流程处理，下次照做即可。
+
+### 第 0 步：先搞清 drizzle 凭什么决定「跑不跑」
+
+这是最容易踩的坑，**不是看编号，是看时间戳**：
+
+```
+journal 里该条迁移的 "when"  <  库里 __drizzle_migrations 最后一条 created_at
+    →  drizzle 认为「已经处理过」，永久跳过，且不报错
+```
+
+后果：编号顺延后，上游那条时间戳更早的迁移会被**静默跳过**，代码却在用它的新字段，
+运行期才炸。所以「改完编号就完事」是错的，必须额外补库。
+
+### 第 1 步：确认是否真的撞车
+
+```bash
+git merge --no-commit --no-ff upstream/master      # 先试合并
+git diff --name-only --diff-filter=U               # 只看冲突文件
+grep -n '"tag"' drizzle/meta/_journal.json | tail -8
+```
+
+冲突只出现在 `drizzle/meta/_journal.json` 与 `drizzle/meta/0067_snapshot.json` 时，
+`schema.ts` 通常能自动合并（两边改的是不同区块）。
+
+### 第 2 步：编号处置规则
+
+| 项 | 规则 |
+| --- | --- |
+| 上游迁移 | **保持原号**，SQL 与 `when` 一律不动 |
+| 我们的迁移 | 顺延到下一个空号，**SQL 内容一个字节不改** |
+| 我们的 `when` | **保持原值**（天然晚于上游，顺序自动正确） |
+| 我们的 snapshot | 另存为新号，并把 `prevId` 改指上游新的 snapshot `id` |
+| `_journal.json` | 按 `when` 升序排列两条，`idx` 连续 |
+
+> 顺延只改文件名和 journal 的 `tag`，不改 SQL —— 因为线上库已经按旧哈希记过账（见第 4 步）。
+
+### 第 3 步：解冲突
+
+```bash
+git checkout --theirs drizzle/meta/0067_snapshot.json      # 上游的 0067 快照
+git mv drizzle/0067_gm_panel.sql drizzle/0068_gm_panel.sql
+git mv drizzle/meta/0067_snapshot.json drizzle/meta/0068_snapshot.json
+# 手改 0068_snapshot.json 的 prevId → 上游 0067 snapshot 的 id
+# 手改 _journal.json：上游 0067 保留，我们的改成 0068 且 when 不变
+```
+
+### 第 4 步：线上库补跑（关键，不可省）
+
+drizzle 判断「已应用」用的是 `hash = sha256(SQL 文件原始内容)`。我们的迁移内容没变，
+哈希不变，所以顺延后**不会被重复执行**；但上游那条被 `when` 规则跳过了，必须手工补：
+
+```bash
+# 1) 直接执行上游 SQL
+docker exec -i <pg容器> psql -U <user> -d <db> < drizzle/0067_xxx.sql
+
+# 2) 按上游原 when 补一条记账行
+HASH=$(sha256sum drizzle/0067_xxx.sql | cut -d' ' -f1)
+docker exec -i <pg容器> psql -U <user> -d <db> -c \
+  "insert into drizzle.__drizzle_migrations (hash, created_at) values ('$HASH', <上游 when>);"
+```
+
+想先验证哈希算法是否就是「文件内容的 sha256」：拿一条**已经应用过**的迁移反推，
+算出来的值应与库里 `hash` 完全一致。
+
+### 第 5 步：验收清单
+
+| 检查 | 期望 |
+| --- | --- |
+| `select count(*) from information_schema.tables where table_schema='public'` | 与迁移总数相符（本次 82） |
+| `select count(*) from drizzle.__drizzle_migrations` | 主库 +1 条（本次 69） |
+| `\d <上游新表>` | 上游新字段/新表都在 |
+| `pnpm run typecheck` | 14/14 |
+| 上游新能力接口 | 200 |
+
+### 踩坑备忘
+
+- **`*.sql` 别改名后忘了 `_journal.json`**：两者必须一致，否则 drizzle 找不到文件。
+- **`git mv` 掉的旧文件名会留在 history 里**，不要试图重写历史，`_journal.json` 说清楚就行。
+- **本地 clone 可能没配 `upstream` remote**，同步前先 `git remote add upstream <URL>` 并
+  `git fetch upstream`，否则 `git merge upstream/master` 直接报错。
+- **顺延后不要重跑 `drizzle-kit generate`**，它只会又生成一个重复的 0068。
 
 ## 探测信号（为什么这样设计）
 

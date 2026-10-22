@@ -16,8 +16,10 @@ import {
   DAO_EQUIPMENT_ESSENCES_V1,
 } from '@daoyou/game-content/equipment/special';
 import { ELEMENT_VALUES } from '@daoyou/constants/elements';
-import { DAO_WEAPONS } from '@daoyou/game-content/equipment/weapons';
-import type { DaoEquipmentSlot } from '@daoyou/game-domain/equipment';
+import { daoEquipmentBaseRange } from '@daoyou/game-rules/equipment/forging';
+import { daoFormationMaxLevel } from '@daoyou/game-rules/equipment/projection';
+import { OPEN_EQUIPMENT_LEVELS } from '@daoyou/game-domain/equipment';
+import type { DaoEquipmentSlot, DaoWeaponType } from '@daoyou/game-domain/equipment';
 
 export const BONUS_ATTR_LABELS: Record<string, string> = {
   vitality: '体魄',
@@ -28,23 +30,20 @@ export const BONUS_ATTR_LABELS: Record<string, string> = {
   willpower: '神识',
 };
 
-/** 双孔阵纹每孔等级上限，按道装器阶（= OPEN_EQUIPMENT_LEVELS）。 */
+/**
+ * 双孔阵纹每孔等级上限。直接取 game-rules 的 daoFormationMaxLevel，
+ * 与库存校验 / 战斗投影共用同一份配置，不再本地复刻。
+ */
 export const FORMATION_LEVEL_LIMITS: Array<{
   equipmentLevel: number;
   maxLevel: number;
-}> = [
-  { equipmentLevel: 10, maxLevel: 3 },
-  { equipmentLevel: 30, maxLevel: 5 },
-  { equipmentLevel: 50, maxLevel: 7 },
-  { equipmentLevel: 70, maxLevel: 9 },
-  { equipmentLevel: 90, maxLevel: 11 },
-];
+}> = OPEN_EQUIPMENT_LEVELS.map((equipmentLevel) => ({
+  equipmentLevel,
+  maxLevel: daoFormationMaxLevel(equipmentLevel),
+}));
 
 export function formationMaxLevel(equipmentLevel: number): number {
-  return (
-    FORMATION_LEVEL_LIMITS.find((r) => r.equipmentLevel === equipmentLevel)
-      ?.maxLevel ?? 0
-  );
+  return daoFormationMaxLevel(equipmentLevel);
 }
 
 /**
@@ -63,8 +62,8 @@ export function bonusValueRange(equipmentLevel: number): {
 }
 
 /**
- * 器胚单字段区间：先按材料品阶进度在 normal→enhanced 之间插值，再乘器形系数。
- * 与 game-rules/equipment/ranges.ts 的取整顺序保持一致。
+ * 器胚单字段区间：直接调用 game-rules 导出的 daoEquipmentBaseRange，
+ * 不复刻取整顺序，避免与源码漂移。境界未开放时返回 null。
  */
 export function baseStatRange(params: {
   templateId: string;
@@ -77,32 +76,16 @@ export function baseStatRange(params: {
   if (!template) return null;
   const rule = template.baseStats.find((item) => item.attr === params.attr);
   if (!rule) return null;
-  const range = rule.ranges.find((r) => r.level === params.equipmentLevel);
-  if (!range) return null;
+  // daoEquipmentBaseRange 在境界未开放时抛错，先自行判定
+  if (!rule.ranges.some((r) => r.level === params.equipmentLevel)) return null;
 
   const quality = Math.min(1, Math.max(0, params.baseQuality));
-  const weaponFactor =
-    params.weaponType && params.attr === 'physicalAtk'
-      ? (DAO_WEAPONS as unknown as Record<string, { physicalAtk?: number }>)[
-          params.weaponType
-        ]?.physicalAtk
-      : params.weaponType && params.attr === 'magicAtk'
-        ? (DAO_WEAPONS as unknown as Record<string, { magicAtk?: number }>)[
-            params.weaponType
-          ]?.magicAtk
-        : undefined;
-  const factor = weaponFactor ?? 1;
-
-  const min = Math.round(
-    range.normal[0] + quality * (range.enhanced[0] - range.normal[0]),
+  return daoEquipmentBaseRange(
+    rule,
+    params.equipmentLevel,
+    quality,
+    params.weaponType as DaoWeaponType | undefined,
   );
-  const max = Math.round(
-    range.normal[1] + quality * (range.enhanced[1] - range.normal[1]),
-  );
-  return {
-    min: Math.round(min * factor),
-    max: Math.round(max * factor),
-  };
 }
 
 export function buildEquipmentOptions(
