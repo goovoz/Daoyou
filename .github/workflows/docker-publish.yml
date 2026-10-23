@@ -8,6 +8,24 @@ on:
   push:
     branches: [master]
     tags: ['v*']
+    # 纯文档 / 清单 / 同步机制改动不重建镜像。
+    # 依据：docker/Dockerfile.app 虽然 `COPY . .`，但产物只取决于 apps/**、packages/**
+    # 与依赖清单；这些被忽略的路径不会改变镜像内容。
+    # 注意：路径过滤只对分支推送生效，推 v* tag 仍会构建。
+    # 故意不忽略 docker-publish.yml 自身，否则改 workflow 就没法验证了。
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.editorconfig'
+      - '.github/FUNDING.yml'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/fork-paths.txt'
+      - '.github/fork-patches.json'
+      - '.github/scripts/**'
+      - '.github/workflows/sync-upstream.yml'
+      - 'sponsorkit/**'
   workflow_dispatch:
     inputs:
       push:
