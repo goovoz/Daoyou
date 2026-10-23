@@ -7,7 +7,10 @@ name: Sync upstream
 
 on:
   schedule:
-    - cron: '17 3 * * *'
+    # 每天 4 次（UTC 01/07/13/19，即北京时间 09/15/21/03）。
+    # 单一日频不够用：GitHub 的定时任务会延迟数小时（实测 03:17 被延到 08:34），
+    # 上游若在这之后推提交，就要等到第二天才可能被捡到。
+    - cron: '17 1,7,13,19 * * *'
   workflow_dispatch:
     inputs:
       mode:
