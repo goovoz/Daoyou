@@ -75,6 +75,28 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
    - 无冲突 → 推分支 + 开 PR（`direct` 模式直接推 master）
    - 有冲突 → **不硬来**，把冲突标记原样提交，推分支并开 `[需人工]` PR
 
+## 镜像构建触发规则
+
+每次 push master 都会重建 app / web 两个镜像（实测单次 2–3 分钟）。为了不让纯文档提交
+白白重建，`docker-publish.yml` 用 `paths-ignore` 排除了 12 类路径：
+
+| 类别 | 路径 |
+| --- | --- |
+| 文档 | `**/*.md`、`docs/**`、`LICENSE` |
+| 仓库配置 | `.gitignore`、`.editorconfig`、`.github/FUNDING.yml`、`.github/ISSUE_TEMPLATE/**` |
+| 补丁清单与同步机制 | `.github/fork-paths.txt`、`.github/fork-patches.json`、`.github/scripts/**`、`.github/workflows/sync-upstream.yml` |
+| 赞助素材 | `sponsorkit/**` |
+
+依据：`docker/Dockerfile.app` 虽然 `COPY . .`，但产物只取决于 `apps/**`、`packages/**`
+与依赖清单（`package.json` / `pnpm-lock.yaml` / `pnpm-workspace.yaml`）。
+
+两条边界，改的时候别踩：
+
+- **不忽略 `docker-publish.yml` 自身** —— 否则改 workflow 时，改动是否合法就无从验证。
+- **路径过滤只对分支推送生效**，推 `v*` tag 仍然会构建。
+
+需要强制重建（比如镜像缓存出问题）：Actions 里手动 `workflow_dispatch`，它带 `push` 开关。
+
 ## 迁移编号冲突流程（0067 撞车实录）
 
 fork 的迁移编号和上游**独立递增**，两边都会自然用到同一个号。2026-10-22 同步时，
