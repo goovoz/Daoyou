@@ -47,6 +47,9 @@ jobs:
           OLD_SHA=$(git rev-parse origin/upstream-dev 2>/dev/null || echo none)
           echo "upstream $OLD_SHA -> $UP_SHA"
           echo "sha=$UP_SHA" >> "$GITHUB_OUTPUT"
+          # 记下 fork 自身提交：后续步骤要用它从 git 对象里读 fork 独有文件，
+          # 不能依赖工作区（工作区可能已被切到上游树）。
+          echo "fork_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           if [ "$UP_SHA" = "$OLD_SHA" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
@@ -57,8 +60,12 @@ jobs:
         if: steps.fetch.outputs.changed == 'true' && inputs.mode != 'report'
         run: |
           set -euo pipefail
-          git checkout -B upstream-dev "${{ steps.fetch.outputs.sha }}"
-          git push origin upstream-dev --force
+          # 只推引用，不 checkout。
+          # 曾经的写法 `git checkout -B upstream-dev <sha>` 会把工作区切成上游的树，
+          # 而 .github/fork-patches.json、.github/scripts/* 是 fork 独有文件，
+          # 于是紧随其后的「风险扫描」必崩：Cannot find module './.github/fork-patches.json'。
+          # 而且这恰好只在「上游真的有新提交」时触发，等于同步永远走不到合并那一步。
+          git push origin "${{ steps.fetch.outputs.sha }}:refs/heads/upstream-dev" --force
 
       - name: 接口面扫描（上游旧版 vs 新版）
         if: steps.fetch.outputs.changed == 'true'
@@ -69,8 +76,18 @@ jobs:
           git rev-parse "$OLD_REF" >/dev/null 2>&1 || OLD_REF="${{ steps.fetch.outputs.sha }}^"
           git archive "$OLD_REF" | tar -x -C /tmp/old
           git archive "${{ steps.fetch.outputs.sha }}" | tar -x -C /tmp/new
-          bash .github/scripts/scan-interface-surface.sh /tmp/old > /tmp/scan-old.txt 2>&1 || true
-          bash .github/scripts/scan-interface-surface.sh /tmp/new > /tmp/scan-new.txt 2>&1 || true
+          # 扫描脚本是 fork 独有文件，从 git 对象取出再跑。
+          # 注意不能用 `|| true` 掩盖：脚本缺失会导致两侧输出都为空，
+          # 于是 diff 判定「无变化」，把真实缺口藏起来。
+          git show "${{ steps.fetch.outputs.fork_sha }}:.github/scripts/scan-interface-surface.sh" > /tmp/scan-surface.sh
+          bash /tmp/scan-surface.sh /tmp/old > /tmp/scan-old.txt 2>&1 || true
+          bash /tmp/scan-surface.sh /tmp/new > /tmp/scan-new.txt 2>&1 || true
+          if [ ! -s /tmp/scan-old.txt ] && [ ! -s /tmp/scan-new.txt ]; then
+            echo "接口面扫描无输出，脚本可能执行失败：" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            head -20 /tmp/scan-new.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "## 接口面变化" >> "$GITHUB_STEP_SUMMARY"
           if diff -u /tmp/scan-old.txt /tmp/scan-new.txt > /tmp/scan.diff; then
             echo "无变化。" >> "$GITHUB_STEP_SUMMARY"
@@ -85,9 +102,14 @@ jobs:
         if: steps.fetch.outputs.changed == 'true'
         run: |
           set -uo pipefail
-          TOUCHES=$(node -e "
-            const m=require('./.github/fork-patches.json');
-            console.log(m.patches.flatMap(p=>p.touches).join('\n'));
+          FORK_SHA="${{ steps.fetch.outputs.fork_sha }}"
+          # 从 git 对象读取，不依赖工作区里是否存在该文件
+          TOUCHES=$(git show "$FORK_SHA:.github/fork-patches.json" | node -e "
+            let s='';
+            process.stdin.on('data', d => s += d).on('end', () => {
+              const m = JSON.parse(s);
+              console.log(m.patches.flatMap(p => p.touches).join('\n'));
+            });
           ")
           CHANGED=$(git diff --name-only origin/upstream-dev "${{ steps.fetch.outputs.sha }}" 2>/dev/null || \
                     git diff --name-only "${{ steps.fetch.outputs.sha }}^" "${{ steps.fetch.outputs.sha }}")
@@ -113,7 +135,9 @@ jobs:
           set -uo pipefail
           mkdir -p /tmp/probe
           git archive "${{ steps.fetch.outputs.sha }}" | tar -x -C /tmp/probe
-          RESULT=$(bash .github/scripts/detect-gm-panel.sh /tmp/probe || true)
+          # 探测器脚本同样是 fork 独有文件，从 git 对象取出，避免工作区被切换后找不到
+          git show "${{ steps.fetch.outputs.fork_sha }}:.github/scripts/detect-gm-panel.sh" > /tmp/detect-gm-panel.sh
+          RESULT=$(bash /tmp/detect-gm-panel.sh /tmp/probe || true)
           echo "## 补丁存活探测（gm-panel）" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "$RESULT" >> "$GITHUB_STEP_SUMMARY"
