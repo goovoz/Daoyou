@@ -250,11 +250,18 @@ jobs:
           set -uo pipefail
           # 用 GITHUB_TOKEN 推的 commit 不会触发 on: push 的 workflow，
           # 所以同步合并后镜像不会自动更新，必须显式 dispatch 一次。
-          if gh workflow run docker-publish.yml --ref master; then
+          # 必须带 --repo：本 workflow 前面用 `git remote add upstream` 加了上游仓库，
+          # gh 会自动识别成 ChurchTao/Daoyou，导致 404 workflow not found。
+          if OUT=$(gh workflow run docker-publish.yml --ref master --repo "${{ github.repository }}" 2>&1); then
             echo "已触发 docker-publish。" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::触发 docker-publish 失败，请手动 dispatch，否则 latest 镜像仍是旧代码。"
-            echo "⚠️ 触发镜像重建失败，请手动 dispatch docker-publish。" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::触发 docker-publish 失败：$OUT"
+            {
+              echo "⚠️ 触发镜像重建失败，请手动 dispatch docker-publish，否则 latest 仍是旧代码。"
+              echo '```'
+              echo "$OUT"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: 开 PR
