@@ -74,8 +74,24 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
 4. 风险扫描：上游本次改动的文件 ∩ 补丁 `touches` → 命中则 PR 标题加「补丁文件受影响」；`LICENSE` 被改单独告警
 5. 探测上游是否已实现 GM 面板 → 结果写进 summary
 6. `checkout -B sync/<日期> origin/master` + `git merge 上游`
-   - 无冲突 → 推分支 + 开 PR（`direct` 模式直接推 master，并**显式 dispatch 一次镜像构建**）
-   - 有冲突 → **不硬来**，把冲突标记原样提交，推分支并开 `[需人工]` PR
+   - 推 sync 分支（始终推，便于回滚）
+   - 无冲突则继续跑 `pnpm install --frozen-lockfile` + `pnpm run typecheck`
+   - 按下面的落库策略决定「直推 master」还是「开 PR」
+
+### 落库策略
+
+| 触发方式 | 直推 master 的条件 | 否则 |
+| --- | --- | --- |
+| 定时（`mode` 为空，按 `auto` 处理） | 无冲突 **且** 类型检查通过 **且** 补丁文件未被上游触碰 | 推 sync 分支 + 开 PR |
+| 手动 `direct` | 无冲突 **且** 类型检查通过 | 推 sync 分支 + 开 PR |
+| 手动 `pr` | 永不直推 | 开 PR |
+| 手动 `report` | 不合并、不推分支 | 只写 summary |
+
+PR 标题会带原因：`[需人工] …（存在冲突 / 类型检查未通过 / 补丁文件受影响）`。
+类型检查失败时，最后 30 行输出会写进 job summary，便于判断是代码问题还是环境问题。
+
+> `auto` 比 `direct` 多一道门槛：补丁触碰的文件被上游改动时不自动落库。
+> 因为那种情况往往需要人工决定「让位上游还是保留自己的实现」。
 
 ### 为什么第 2 步绝不能 `git checkout`
 

@@ -14,10 +14,10 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'report = 只扫描不落分支；pr = 开 PR；direct = 直接推 master'
+        description: 'auto = 通过检查就直推（定时同款）；report = 只扫描；pr = 只开 PR；direct = 不看补丁风险直推'
         type: choice
-        options: [report, pr, direct]
-        default: pr
+        options: [auto, report, pr, direct]
+        default: auto
 
 permissions:
   contents: write
@@ -163,8 +163,79 @@ jobs:
           git push origin "$BRANCH" --force-with-lease
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
+      - name: 准备 Node（与镜像一致）
+        if: steps.merge.outputs.conflict == 'false'
+        uses: actions/setup-node@v4
+        with:
+          # docker/Dockerfile.app 用 node:24.18.0；runner 默认版本可能更旧，
+          # 固定成同一个版本，避免「本地过、CI 不过」这类环境差异。
+          node-version: '24.18.0'
+
+      - name: 缓存 pnpm store
+        if: steps.merge.outputs.conflict == 'false'
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-
+
+      - name: 类型检查（合并结果）
+        id: typecheck
+        if: steps.merge.outputs.conflict == 'false'
+        run: |
+          set -uo pipefail
+          # 与 docker/Dockerfile.app 用同一个 pnpm 版本，避免解释器差异
+          npm install --global pnpm@12.10.1 >/dev/null 2>&1 || true
+          if pnpm install --frozen-lockfile >/tmp/install.log 2>&1 \
+             && pnpm run typecheck >/tmp/tc.log 2>&1; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "类型检查通过。" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::合并结果类型检查未通过，改为开 PR 交人工处理"
+            {
+              echo "⚠️ 类型检查未通过，改为开 PR。"
+              echo '```'
+              tail -30 /tmp/tc.log 2>/dev/null || tail -30 /tmp/install.log 2>/dev/null || echo "(无输出)"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 判定落库方式
+        id: policy
+        if: steps.merge.outputs.branch != ''
+        run: |
+          set -uo pipefail
+          MODE="${{ inputs.mode }}"
+          [ -z "$MODE" ] && MODE=auto
+          CONFLICT="${{ steps.merge.outputs.conflict }}"
+          TC="${{ steps.typecheck.outputs.ok }}"
+          RISK="${{ steps.risk.outputs.hit }}"
+          PUSH=false
+          if [ "$CONFLICT" != "true" ] && [ "$TC" = "true" ]; then
+            case "$MODE" in
+              # 人工 direct：只要不冲突、类型检查过就直推
+              direct) PUSH=true ;;
+              # 定时（auto）：再多一道「补丁文件未被上游触碰」的门槛
+              auto) [ "$RISK" != "true" ] && PUSH=true ;;
+              *) PUSH=false ;;
+            esac
+          fi
+          echo "push=$PUSH" >> "$GITHUB_OUTPUT"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          {
+            echo "## 落库判定"
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| mode | $MODE |"
+            echo "| 合并冲突 | $CONFLICT |"
+            echo "| 类型检查 | $TC |"
+            echo "| 补丁文件被上游改动 | $RISK |"
+            echo "| 直推 master | $PUSH |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: 直接推送 master
-        if: steps.merge.outputs.conflict == 'false' && inputs.mode == 'direct'
+        if: steps.policy.outputs.push == 'true'
         run: |
           set -euo pipefail
           git checkout master
@@ -172,7 +243,7 @@ jobs:
           git push origin master
 
       - name: 触发镜像重建
-        if: steps.merge.outputs.conflict == 'false' && inputs.mode == 'direct'
+        if: steps.policy.outputs.push == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -187,17 +258,23 @@ jobs:
           fi
 
       - name: 开 PR
-        if: steps.merge.outputs.branch != '' && inputs.mode != 'direct'
+        if: steps.merge.outputs.branch != '' && steps.policy.outputs.push != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -uo pipefail
           TITLE="chore(sync): 同步上游 ${{ steps.fetch.outputs.sha }}"
+          REASON=""
           if [ "${{ steps.merge.outputs.conflict }}" = "true" ]; then
-            TITLE="[需人工] $TITLE（存在冲突）"
+            REASON="存在冲突"
+          elif [ "${{ steps.typecheck.outputs.ok }}" != "true" ]; then
+            REASON="类型检查未通过"
           elif [ "${{ steps.risk.outputs.hit }}" = "true" ]; then
-            TITLE="$TITLE（补丁文件受影响）"
+            REASON="补丁文件受影响"
+          fi
+          if [ -n "$REASON" ]; then
+            TITLE="[需人工] $TITLE（$REASON）"
           fi
           gh pr create --base master --head "${{ steps.merge.outputs.branch }}" \
-            --title "$TITLE" --body "自动同步，详见 job summary 的接口面扫描与补丁探测结果。" || \
+            --title "$TITLE" --body "自动同步，详见 job summary 的接口面扫描、风险扫描与类型检查结果。" || \
             echo "PR 创建失败：请确认仓库已开启 Allow GitHub Actions to create and approve pull requests"
