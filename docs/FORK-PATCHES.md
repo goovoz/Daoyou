@@ -64,16 +64,44 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
 
 ## 同步流程
 
-`.github/workflows/sync-upstream.yml`，每日 03:17 UTC，也可手动触发（`report` / `pr` / `direct`）：
+`.github/workflows/sync-upstream.yml`，每日 4 次（UTC 01/07/13/19，即北京时间 09/15/21/03），
+也可手动触发（`report` / `pr` / `direct`）：
 
-1. fetch 上游，SHA 未变则直接退出（省 CI 分钟数）
-2. 更新 `upstream-dev` 镜像分支
+1. fetch 上游，SHA 未变则直接退出（省 CI 分钟数）；同时把 fork 自身的 `fork_sha` 写进 output
+2. 更新 `upstream-dev` 镜像分支 —— **只推引用，不检出**：
+   `git push origin <sha>:refs/heads/upstream-dev --force`
 3. 接口面扫描：对上游旧版/新版各跑一次 `scan-interface-surface.sh`，diff 写进 job summary
 4. 风险扫描：上游本次改动的文件 ∩ 补丁 `touches` → 命中则 PR 标题加「补丁文件受影响」；`LICENSE` 被改单独告警
 5. 探测上游是否已实现 GM 面板 → 结果写进 summary
 6. `checkout -B sync/<日期> origin/master` + `git merge 上游`
-   - 无冲突 → 推分支 + 开 PR（`direct` 模式直接推 master）
+   - 无冲突 → 推分支 + 开 PR（`direct` 模式直接推 master，并**显式 dispatch 一次镜像构建**）
    - 有冲突 → **不硬来**，把冲突标记原样提交，推分支并开 `[需人工]` PR
+
+### 为什么第 2 步绝不能 `git checkout`
+
+这是 2026-10-24 修掉的一个真实故障，形态是「上游一有提交，同步就失败」：
+
+```
+Error: Cannot find module './.github/fork-patches.json'
+```
+
+原来的写法是 `git checkout -B upstream-dev <上游sha>`，它会把工作区整个切成**上游的树**。
+而 `.github/fork-patches.json`、`.github/scripts/*` 是 fork 独有文件，上游树里没有，
+于是紧随其后的风险扫描 `require('./.github/fork-patches.json')` 直接崩。
+
+它只在「上游真的有新提交」时触发：没有新提交时第 2 步被跳过，工作区还是 fork 的树，
+所以历史记录里成功与失败交替出现，看起来像偶发。修复后三步都不再依赖工作区状态：
+
+- 更新分支改成只推引用
+- 风险扫描 / 探测器脚本改成 `git show "$FORK_SHA:<path>"`，从 git 对象读
+- 接口面扫描同样从对象取；并检查两侧输出是否都为空（空 = 脚本没跑起来，不是「无变化」），
+  否则 `|| true` 会把故障伪装成「无变化」
+
+### 用 GITHUB_TOKEN 推的 commit 不触发构建
+
+`direct` 模式合并后由 CI 推送 master，这个推送用的是 `GITHUB_TOKEN`，
+**不会触发 `on: push` 的 `docker-publish`**。所以同步步骤末尾显式
+`gh workflow run docker-publish.yml`，否则 `latest` 会停在旧代码上而你不知道。
 
 ## 镜像构建触发规则
 
