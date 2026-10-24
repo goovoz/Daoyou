@@ -115,9 +115,20 @@ Error: Cannot find module './.github/fork-patches.json'
 
 ### 用 GITHUB_TOKEN 推的 commit 不触发构建
 
-`direct` 模式合并后由 CI 推送 master，这个推送用的是 `GITHUB_TOKEN`，
-**不会触发 `on: push` 的 `docker-publish`**。所以同步步骤末尾显式
-`gh workflow run docker-publish.yml`，否则 `latest` 会停在旧代码上而你不知道。
+`direct` / `auto` 模式合并后由 CI 推送 master，这个推送用的是 `GITHUB_TOKEN`，
+**不会触发 `on: push` 的 `docker-publish`**。所以同步步骤末尾显式：
+
+```bash
+gh workflow run docker-publish.yml --ref master --repo "${{ github.repository }}"
+```
+
+两个坑都踩过：
+
+- **必须带 `--repo`**。本 workflow 前面执行了 `git remote add upstream https://github.com/ChurchTao/Daoyou.git`，
+  `gh` 按 remote 推断仓库时会选到**上游**，报 `HTTP 404: workflow docker-publish.yml not found`
+  （URL 里能看到 `ChurchTao/Daoyou`），而步骤本身因为 `set -uo pipefail`（无 `-e`）不会失败，
+  只打 warning——看起来一切正常，实际没有构建。
+- 触发后要确认 `Publish images` 真的出现了 `workflow_dispatch` 记录，不能只看步骤结论。
 
 ## 镜像构建触发规则
 
