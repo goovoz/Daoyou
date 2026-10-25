@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "id": "d5711596-c6f7-4a81-8512-94384460c1f9",
+=======
+  "id": "407edae7-6121-4c3f-8857-acefdb538b49",
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
   "prevId": "5db4e6bc-e49a-4d64-847f-d5d11c69a29e",
   "version": "7",
   "dialect": "postgresql",
@@ -378,6 +382,286 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+<<<<<<< HEAD
+=======
+    "public.wanjiedaoyou_auction_buy_orders": {
+      "name": "wanjiedaoyou_auction_buy_orders",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "buyer_id": {
+          "name": "buyer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "buyer_name": {
+          "name": "buyer_name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_type": {
+          "name": "item_type",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_name": {
+          "name": "item_name",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "item_quality": {
+          "name": "item_quality",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "item_category": {
+          "name": "item_category",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "target_definition_id": {
+          "name": "target_definition_id",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_stack_key": {
+          "name": "target_stack_key",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_snapshot": {
+          "name": "target_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "price": {
+          "name": "price",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "initial_quantity": {
+          "name": "initial_quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "remaining_quantity": {
+          "name": "remaining_quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "filled_at": {
+          "name": "filled_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "auction_buy_order_status_expires_price_idx": {
+          "name": "auction_buy_order_status_expires_price_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "price",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auction_buy_order_status_expires_created_idx": {
+          "name": "auction_buy_order_status_expires_created_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auction_buy_order_status_type_expires_created_idx": {
+          "name": "auction_buy_order_status_type_expires_created_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auction_buy_order_status_name_expires_created_idx": {
+          "name": "auction_buy_order_status_name_expires_created_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auction_buy_order_buyer_status_idx": {
+          "name": "auction_buy_order_buyer_status_idx",
+          "columns": [
+            {
+              "expression": "buyer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "wanjiedaoyou_auction_buy_orders_buyer_id_wanjiedaoyou_cultivators_id_fk": {
+          "name": "wanjiedaoyou_auction_buy_orders_buyer_id_wanjiedaoyou_cultivators_id_fk",
+          "tableFrom": "wanjiedaoyou_auction_buy_orders",
+          "tableTo": "wanjiedaoyou_cultivators",
+          "columnsFrom": [
+            "buyer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
     "public.wanjiedaoyou_auction_listings": {
       "name": "wanjiedaoyou_auction_listings",
       "schema": "",
@@ -2309,7 +2593,11 @@
           "type": "varchar(20)",
           "primaryKey": false,
           "notNull": true,
+<<<<<<< HEAD
           "default": "'\u51e1\u54c1'"
+=======
+          "default": "'凡品'"
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
         },
         "spec": {
           "name": "spec",
@@ -4390,6 +4678,7 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+<<<<<<< HEAD
     "public.wanjiedaoyou_gm_audit_logs": {
       "name": "wanjiedaoyou_gm_audit_logs",
       "schema": "",
@@ -4529,6 +4818,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+=======
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
     "public.wanjiedaoyou_inventory_items": {
       "name": "wanjiedaoyou_inventory_items",
       "schema": "",
@@ -6019,6 +6310,7 @@
           "notNull": true,
           "default": 0
         },
+<<<<<<< HEAD
         "bound_user_id": {
           "name": "bound_user_id",
           "type": "uuid",
@@ -6043,6 +6335,8 @@
           "primaryKey": false,
           "notNull": false
         },
+=======
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
         "starts_at": {
           "name": "starts_at",
           "type": "timestamp",
@@ -6133,6 +6427,7 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+<<<<<<< HEAD
         },
         "redeem_codes_bound_user_idx": {
           "name": "redeem_codes_bound_user_idx",
@@ -6163,6 +6458,8 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+=======
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
         }
       },
       "foreignKeys": {},
@@ -8807,7 +9104,17 @@
           "name": "cultivator_id",
           "type": "uuid",
           "primaryKey": false,
+<<<<<<< HEAD
           "notNull": true
+=======
+          "notNull": false
+        },
+        "subscription_term_id": {
+          "name": "subscription_term_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
         },
         "grant_date": {
           "name": "grant_date",
@@ -8862,6 +9169,30 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+<<<<<<< HEAD
+=======
+        },
+        "sponsorship_daily_grants_term_date_uidx": {
+          "name": "sponsorship_daily_grants_term_date_uidx",
+          "columns": [
+            {
+              "expression": "subscription_term_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "grant_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
         }
       },
       "foreignKeys": {
@@ -8875,7 +9206,24 @@
           "columnsTo": [
             "id"
           ],
+<<<<<<< HEAD
           "onDelete": "cascade",
+=======
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "wanjiedaoyou_sponsorship_daily_grants_subscription_term_id_wanjiedaoyou_sponsorship_subscription_terms_id_fk": {
+          "name": "wanjiedaoyou_sponsorship_daily_grants_subscription_term_id_wanjiedaoyou_sponsorship_subscription_terms_id_fk",
+          "tableFrom": "wanjiedaoyou_sponsorship_daily_grants",
+          "tableTo": "wanjiedaoyou_sponsorship_subscription_terms",
+          "columnsFrom": [
+            "subscription_term_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
           "onUpdate": "no action"
         },
         "wanjiedaoyou_sponsorship_daily_grants_mail_id_wanjiedaoyou_mails_id_fk": {
@@ -9368,6 +9716,15 @@
           "primaryKey": false,
           "notNull": false
         },
+<<<<<<< HEAD
+=======
+        "recipient_cultivator_id": {
+          "name": "recipient_cultivator_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
         "config_snapshot": {
           "name": "config_snapshot",
           "type": "jsonb",
@@ -9531,6 +9888,22 @@
           ],
           "onDelete": "set null",
           "onUpdate": "no action"
+<<<<<<< HEAD
+=======
+        },
+        "wanjiedaoyou_sponsorship_orders_recipient_cultivator_id_wanjiedaoyou_cultivators_id_fk": {
+          "name": "wanjiedaoyou_sponsorship_orders_recipient_cultivator_id_wanjiedaoyou_cultivators_id_fk",
+          "tableFrom": "wanjiedaoyou_sponsorship_orders",
+          "tableTo": "wanjiedaoyou_cultivators",
+          "columnsFrom": [
+            "recipient_cultivator_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
         }
       },
       "compositePrimaryKeys": {},
@@ -9643,7 +10016,11 @@
           "name": "cultivator_id",
           "type": "uuid",
           "primaryKey": false,
+<<<<<<< HEAD
           "notNull": true
+=======
+          "notNull": false
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
         },
         "provider": {
           "name": "provider",
@@ -9722,11 +10099,25 @@
         }
       },
       "indexes": {
+<<<<<<< HEAD
         "sponsorship_terms_cultivator_plan_uidx": {
           "name": "sponsorship_terms_cultivator_plan_uidx",
           "columns": [
             {
               "expression": "cultivator_id",
+=======
+        "sponsorship_terms_provider_user_plan_uidx": {
+          "name": "sponsorship_terms_provider_user_plan_uidx",
+          "columns": [
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider_user_id",
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -9743,6 +10134,24 @@
           "method": "btree",
           "with": {}
         },
+<<<<<<< HEAD
+=======
+        "sponsorship_terms_cultivator_idx": {
+          "name": "sponsorship_terms_cultivator_idx",
+          "columns": [
+            {
+              "expression": "cultivator_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
         "sponsorship_terms_provider_user_idx": {
           "name": "sponsorship_terms_provider_user_idx",
           "columns": [
@@ -9797,7 +10206,11 @@
           "columnsTo": [
             "id"
           ],
+<<<<<<< HEAD
           "onDelete": "cascade",
+=======
+          "onDelete": "set null",
+>>>>>>> ab8fb6e441d0a799570571480d209143589ae658
           "onUpdate": "no action"
         },
         "wanjiedaoyou_sponsorship_subscription_terms_source_order_id_wanjiedaoyou_sponsorship_orders_id_fk": {
