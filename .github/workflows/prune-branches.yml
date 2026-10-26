@@ -1,0 +1,98 @@
+# [daoyou-fork] 分支卫生：清理已并入 master 的临时同步分支
+#
+# 为什么需要：同步流程会在 sync/* 上落候选合并结果。旧实现按日期命名
+# （sync/20261024、sync/20261025…），每次同步新建一个、用完没人删，
+# 2026-10-26 清理时已积累 3 个，其中 1 个还留着旧的冲突提交。
+# 现在同步固定用 sync/upstream，本 workflow 只作为兜底与哨兵：
+#   - 已完全并入 master 的分支 → 删除
+#   - 仍有未合并提交的分支 → 保留并在 summary 里点名（防止无人处理的同步烂在那里）
+name: Prune branches
+
+on:
+  schedule:
+    - cron: '23 4 * * 1' # 每周一 04:23 UTC（北京 12:23）
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只报告不删除'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: prune-branches
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 清理 sync/* 分支
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          REPO="${{ github.repository }}"
+          # 定时触发没有 inputs；默认直接删（只报告等于没机制），手动触发默认 dry-run
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            MODE=apply
+          elif [ "${{ inputs.dry_run }}" = "true" ]; then
+            MODE=dry-run
+          else
+            MODE=apply
+          fi
+
+          REPORT=/tmp/report.txt
+          : > "$REPORT"
+
+          OPEN=$(gh pr list --repo "$REPO" --state open --json headRefName --jq '.[].headRefName' 2>/dev/null || true)
+          DELETED=0
+          KEPT=0
+
+          for BR in $(gh api "repos/$REPO/branches?per_page=100" --jq '.[].name'); do
+            case "$BR" in
+              sync/*) ;;
+              *) continue ;;
+            esac
+
+            if [ "$BR" = "sync/upstream" ]; then
+              KEPT=$((KEPT + 1))
+              printf -- '- 保留 `%s`（同步专用固定分支）\n' "$BR" >> "$REPORT"
+              continue
+            fi
+
+            if printf '%s\n' "$OPEN" | grep -qx -- "$BR"; then
+              KEPT=$((KEPT + 1))
+              printf -- '- 保留 `%s`（有未合并 PR）\n' "$BR" >> "$REPORT"
+              continue
+            fi
+
+            AHEAD=$(gh api "repos/$REPO/compare/master...$BR" --jq '.ahead_by // -1' 2>/dev/null || echo -1)
+            if [ "$AHEAD" = "0" ]; then
+              if [ "$MODE" = "apply" ]; then
+                if gh api -X DELETE "repos/$REPO/git/refs/heads/$BR" >/dev/null 2>&1; then
+                  DELETED=$((DELETED + 1))
+                  printf -- '- 已删除 `%s`（已并入 master）\n' "$BR" >> "$REPORT"
+                else
+                  printf -- '- 删除失败 `%s`\n' "$BR" >> "$REPORT"
+                fi
+              else
+                printf -- '- 待删除 `%s`（已并入 master）\n' "$BR" >> "$REPORT"
+              fi
+            else
+              KEPT=$((KEPT + 1))
+              printf -- '- 保留 `%s`（有 %s 个未合并提交，需人工处理）\n' "$BR" "$AHEAD" >> "$REPORT"
+            fi
+          done
+
+          {
+            echo "## 分支清理（$MODE）"
+            if [ -s "$REPORT" ]; then cat "$REPORT"; else echo "（没有 sync/* 分支）"; fi
+            echo
+            echo "删除 $DELETED 个，保留 $KEPT 个。"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -s "$REPORT" ]; then cat "$REPORT"; else echo "（没有 sync/* 分支）"; fi

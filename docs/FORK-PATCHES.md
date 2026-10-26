@@ -133,6 +133,33 @@ gh workflow run docker-publish.yml --ref master --repo "${{ github.repository }}
   只打 warning——看起来一切正常，实际没有构建。
 - 触发后要确认 `Publish images` 真的出现了 `workflow_dispatch` 记录，不能只看步骤结论。
 
+## 分支策略
+
+| 分支 | 性质 | 谁写 | 保留策略 |
+| --- | --- | --- | --- |
+| `master` | 唯一主线 | 人 + CI | 永久 |
+| `upstream-dev` | 上游镜像指针，供同步比对「上次同步到哪」 | CI | 永久 |
+| `sync/upstream` | 同步候选合并结果（PR 用） | 仅 CI（`--force` 覆盖） | 永久一条，不新建 |
+| `archive/sync-YYYYMMDD` | tag，删分支前的快照 | 人工 | 永久（可回滚） |
+
+**不要再按日期建分支。** 旧实现用 `sync/$(date +%Y%m%d)`，每次同步新建一个、用完没人删，
+两个月就堆出若干条（2026-10-26 清了 3 个，其中一个还留着旧的冲突提交）。
+固定名 `sync/upstream` 还有个附带好处：PR 开着时再同步，force-push 会更新同一个 PR，不会开新 PR。
+
+**两道自动兜底**：
+
+- 仓库设置 `delete_branch_on_merge = true` —— PR 合并后自动删分支。
+- `.github/workflows/prune-branches.yml` —— 每周一 04:23 UTC 扫 `sync/*`：
+  `ahead_by == 0` 的删除；仍有未合并提交的**保留并在 job summary 点名**，
+  避免「同步烂在某条分支上没人管」。手动触发默认 dry-run。
+
+**删分支前先打归档 tag**（可回滚）：
+
+```bash
+gh api repos/<owner>/<repo>/git/refs -f ref=refs/tags/archive/sync-YYYYMMDD -f sha=<branch sha>
+gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/sync/YYYYMMDD
+```
+
 ## 镜像构建触发规则
 
 每次 push master 都会重建 app / web 两个镜像（实测单次 2–3 分钟）。为了不让纯文档提交

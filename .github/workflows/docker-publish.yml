@@ -25,6 +25,7 @@ on:
       - '.github/fork-patches.json'
       - '.github/scripts/**'
       - '.github/workflows/sync-upstream.yml'
+      - '.github/workflows/prune-branches.yml'
       - 'sponsorkit/**'
   workflow_dispatch:
     inputs:

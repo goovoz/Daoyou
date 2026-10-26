@@ -149,7 +149,10 @@ jobs:
         if: steps.fetch.outputs.changed == 'true' && inputs.mode != 'report'
         run: |
           set -uo pipefail
-          BRANCH="sync/$(date -u +%Y%m%d)"
+          # 固定分支名，不再按日期生成。
+          # 日期分支每次同步都新建一个，用完没人删，两个月就堆出几十个（2026-10-26 清理了 3 个）。
+          # 固定名还有个好处：PR 开着时再同步，force-push 会直接更新同一个 PR，不会开新 PR。
+          BRANCH="sync/upstream"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B "$BRANCH" origin/master
@@ -161,7 +164,9 @@ jobs:
             git commit -m "chore(sync): 上游 ${{ steps.fetch.outputs.sha }} 合并产生冲突（需人工）" || true
             echo "conflict=true" >> "$GITHUB_OUTPUT"
           fi
-          git push origin "$BRANCH" --force-with-lease
+          # 这个分支只由本 workflow 写，用 --force 而不是 --force-with-lease：
+          # 固定名 + CI 独占，lease 反而会因本地引用过期而失败。
+          git push origin "$BRANCH" --force
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: 准备 Node（与镜像一致）
