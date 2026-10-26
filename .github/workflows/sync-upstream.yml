@@ -273,21 +273,43 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -uo pipefail
+          REPO="${{ github.repository }}"
+          SHA="$(git rev-parse HEAD)"
           # 用 GITHUB_TOKEN 推的 commit 不会触发 on: push 的 workflow，
           # 所以同步合并后镜像不会自动更新，必须显式 dispatch 一次。
           # 必须带 --repo：本 workflow 前面用 `git remote add upstream` 加了上游仓库，
           # gh 会自动识别成 ChurchTao/Daoyou，导致 404 workflow not found。
-          if OUT=$(gh workflow run docker-publish.yml --ref master --repo "${{ github.repository }}" 2>&1); then
-            echo "已触发 docker-publish。" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::warning::触发 docker-publish 失败：$OUT"
-            {
-              echo "⚠️ 触发镜像重建失败，请手动 dispatch docker-publish，否则 latest 仍是旧代码。"
-              echo '```'
-              echo "$OUT"
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
+          if ! OUT=$(gh workflow run docker-publish.yml --ref master --repo "$REPO" 2>&1); then
+            echo "::error::触发 docker-publish 失败：$OUT"
+            exit 1
           fi
+          echo "已触发 docker-publish（${SHA:0:8}），等待结果…"
+
+          # 必须等结果：2026-10-26 出现过「同步成功但 web 镜像构建失败」，
+          # 原因是上游新插件依赖 curl 而 slim 镜像里没有；当时没人发现，
+          # latest 静默停在旧代码上。同步报成功就必须代表镜像真的可用。
+          for i in $(seq 1 60); do
+            sleep 20
+            LINE=$(gh run list --repo "$REPO" --workflow docker-publish.yml --limit 6 \
+              --json headSha,event,status,conclusion,databaseId \
+              --jq "[.[] | select(.headSha == \"$SHA\" and .event == \"workflow_dispatch\")][0] | \"\(.status) \(.conclusion // \"-\") \(.databaseId)\"" 2>/dev/null || true)
+            ST=$(printf '%s' "$LINE" | awk '{print $1}')
+            CC=$(printf '%s' "$LINE" | awk '{print $2}')
+            ID=$(printf '%s' "$LINE" | awk '{print $3}')
+            [ -z "$ST" ] && continue
+            if [ "$ST" = "completed" ]; then
+              if [ "$CC" = "success" ]; then
+                echo "镜像构建成功。"
+                echo "镜像已重建：\`${SHA:0:8}\`" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              echo "::error::镜像构建失败（$CC）。查看：gh run view $ID --repo $REPO --log-failed"
+              echo "❌ 镜像构建失败（$CC），\`latest\` 可能仍是旧代码。" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          done
+          echo "::warning::20 分钟内未等到镜像构建结果，请手动确认。"
+          echo "⚠️ 未等到镜像构建结果，请确认 \`latest\` 是否已更新。" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 开 PR
         if: steps.merge.outputs.branch != '' && steps.policy.outputs.push != 'true'

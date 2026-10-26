@@ -6,6 +6,15 @@
 FROM node:24.18.0-bookworm-slim AS builder
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
+# curl / ca-certificates：上游 419060fc 起用 cn-font-split 做字体分包，
+# 它的 postinstall（dist/init.sh）靠 curl 从 GitHub Releases 拉原生 .so。
+# bookworm-slim 不带 curl，会报：
+#   init.sh: line 139: curl: command not found
+#   Error: Font splitter native library installation failed.
+# 导致 web 镜像构建失败而 app 镜像照常成功（不易察觉）。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 RUN npm install --global pnpm@12.10.1
 
 WORKDIR /app
