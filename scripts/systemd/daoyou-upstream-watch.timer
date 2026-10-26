@@ -1,0 +1,11 @@
+[Unit]
+Description=每 5 分钟检查 Daoyou 上游是否有新提交
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=daoyou-upstream-watch.service
+
+[Install]
+WantedBy=timers.target

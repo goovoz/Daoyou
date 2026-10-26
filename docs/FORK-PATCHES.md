@@ -65,8 +65,9 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
 
 ## 同步流程
 
-`.github/workflows/sync-upstream.yml`，每日 4 次（UTC 01/07/13/19，即北京时间 09/15/21/03），
-也可手动触发（`report` / `pr` / `direct`）：
+`.github/workflows/sync-upstream.yml`，**每 30 分钟兜底**（`7,37 * * * *`）；
+真正的时效靠常开机器上的哨兵（见下节「上游哨兵」），5 分钟轮询、有变化才 dispatch。
+也可手动触发（`auto` / `report` / `pr` / `direct`）：
 
 1. fetch 上游，SHA 未变则直接退出（省 CI 分钟数）；同时把 fork 自身的 `fork_sha` 写进 output
 2. 更新 `upstream-dev` 镜像分支 —— **只推引用，不检出**：
@@ -132,6 +133,41 @@ gh workflow run docker-publish.yml --ref master --repo "${{ github.repository }}
   （URL 里能看到 `ChurchTao/Daoyou`），而步骤本身因为 `set -uo pipefail`（无 `-e`）不会失败，
   只打 warning——看起来一切正常，实际没有构建。
 - 触发后要确认 `Publish images` 真的出现了 `workflow_dispatch` 记录，不能只看步骤结论。
+
+## 上游哨兵（把轮询从 Actions 挪出来）
+
+2026-10-26 的教训：机制本身没问题，但「什么时候同步」太粗。
+上游 07:03 / 08:00 推了提交，最后一次定时是 06:15，下一次要等到 13:17 —— 滞后 5 小时以上，
+而用户看到的只是「又没同步过来」。
+
+**为什么不把 cron 加密**：GitHub 定时任务粒度有限且会被延迟（实测 03:17 被延到 08:34），
+高频有被限用风险；空跑虽然免费，但会在 Actions 里堆满记录。
+
+**做法**：常开机器（.101）上跑一个 5 分钟一次的哨兵，只花 2 个 API 请求判断有没有变化，
+真的变了才 `workflow_dispatch` 一次。cron 降为 30 分钟兜底，哨兵挂了也能追上。
+
+```
+scripts/watch-upstream.sh                       # 哨兵本体（支持 --dry-run）
+scripts/systemd/daoyou-upstream-watch.service   # oneshot
+scripts/systemd/daoyou-upstream-watch.timer     # OnUnitActiveSec=5min
+```
+
+部署：
+
+```bash
+install -m 755 scripts/watch-upstream.sh /usr/local/bin/watch-daoyou-upstream.sh
+install -m 644 scripts/systemd/daoyou-upstream-watch.service /etc/systemd/system/
+install -m 644 scripts/systemd/daoyou-upstream-watch.timer   /etc/systemd/system/
+mkdir -p /root/.config/daoyou
+printf '%s' '<PAT>' > /root/.config/daoyou/pat && chmod 600 /root/.config/daoyou/pat
+systemctl daemon-reload && systemctl enable --now daoyou-upstream-watch.timer
+```
+
+判定依据是 `upstream/master` 的 HEAD 与我们的 `upstream-dev`（= 上次同步到的上游提交）是否相同。
+另有 10 分钟去抖：同一个上游 SHA 在 10 分钟内只会派发一次，避免同步还在跑时重复堆积。
+状态写在 `/root/.config/daoyou/watch-state`。
+
+PAT 只需 `actions:write` + `contents:read`。**不要把 PAT 提交进仓库**。
 
 ## 分支策略
 

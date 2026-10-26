@@ -1,0 +1,12 @@
+[Unit]
+Description=Daoyou 上游更新哨兵（有变化才 dispatch 同步）
+Documentation=https://github.com/goovoz/Daoyou/blob/master/docs/FORK-PATCHES.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/watch-daoyou-upstream.sh
+# 失败只记录，不影响下次轮询
+SuccessExitStatus=0
+TimeoutStartSec=120

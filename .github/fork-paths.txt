@@ -20,6 +20,9 @@ drizzle/fork/
 docker/Dockerfile.web
 docker/nginx.conf
 scripts/docker-compose.stack.yml
+scripts/apply-fork-migrations.sh
+scripts/watch-upstream.sh
+scripts/systemd/
 docs/FORK-PATCHES.md
 .github/fork-paths.txt
 .github/fork-patches.json

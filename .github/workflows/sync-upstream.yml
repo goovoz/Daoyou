@@ -7,10 +7,12 @@ name: Sync upstream
 
 on:
   schedule:
-    # 每天 4 次（UTC 01/07/13/19，即北京时间 09/15/21/03）。
-    # 单一日频不够用：GitHub 的定时任务会延迟数小时（实测 03:17 被延到 08:34），
-    # 上游若在这之后推提交，就要等到第二天才可能被捡到。
-    - cron: '17 1,7,13,19 * * *'
+    # 兜底频率：每 30 分钟。真正的时效靠常开机器上的哨兵
+    # （scripts/watch-upstream.sh，5 分钟轮询，有变化才 dispatch），
+    # cron 只在哨兵挂掉时兜底。
+    # 不把 cron 设成 5 分钟的原因：GitHub 定时任务本身会被延迟、高频有被限用风险，
+    # 而且空跑会在 Actions 里堆满记录。
+    - cron: '7,37 * * * *'
   workflow_dispatch:
     inputs:
       mode:
