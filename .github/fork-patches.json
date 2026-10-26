@@ -30,9 +30,7 @@
         "apps/api/src/admin/reward-items.controller.ts",
         "packages/contracts/src/adminItemGeneration.ts",
         "apps/web/src/routes/admin/_components/RewardItemPicker.tsx",
-        "drizzle/0068_gm_panel.sql",
-        "drizzle/meta/_journal.json",
-        "drizzle/meta/0068_snapshot.json"
+        "drizzle/fork/001_gm_panel.sql"
       ],
       "retire": "archive-and-reset"
     }

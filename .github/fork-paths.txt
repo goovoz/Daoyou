@@ -16,7 +16,7 @@ apps/api/src/admin/llm-config.controller.ts
 apps/api/src/admin/llm-config-input.ts
 apps/api/src/admin/equipment-options.ts
 apps/web/src/routes/admin/llm/
-drizzle/0067_gm_panel.sql
+drizzle/fork/
 docker/Dockerfile.web
 docker/nginx.conf
 scripts/docker-compose.stack.yml

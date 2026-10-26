@@ -114,6 +114,7 @@ jobs:
           CHANGED=$(git diff --name-only origin/upstream-dev "${{ steps.fetch.outputs.sha }}" 2>/dev/null || \
                     git diff --name-only "${{ steps.fetch.outputs.sha }}^" "${{ steps.fetch.outputs.sha }}")
           HIT=$(comm -12 <(printf '%s\n' "$TOUCHES" | sort -u) <(printf '%s\n' "$CHANGED" | sort -u) || true)
+          printf '%s\n' "$HIT" > /tmp/hit.txt
           echo "## 风险扫描" >> "$GITHUB_STEP_SUMMARY"
           if [ -n "$HIT" ]; then
             echo "以下补丁触碰的文件被上游改动，需人工复核：" >> "$GITHUB_STEP_SUMMARY"
@@ -211,18 +212,34 @@ jobs:
           CONFLICT="${{ steps.merge.outputs.conflict }}"
           TC="${{ steps.typecheck.outputs.ok }}"
           RISK="${{ steps.risk.outputs.hit }}"
+
+          # 上游碰过的补丁文件里，锚点必须还在。
+          # 之所以不再「碰到就拦」：schema.ts 这类追加式改动 git 能自动合并，
+          # 按文件粒度拦截会让三分之一的上游批次都变成 PR，等于永远落后。
+          # 现在改为校验实际记号，丢了才算补丁被覆盖。
+          MISSING=""
+          if [ "$RISK" = "true" ] && [ -s /tmp/hit.txt ]; then
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              if [ ! -f "$f" ]; then MISSING="$MISSING $f(已删除)"
+              elif ! grep -q 'daoyou-fork' "$f"; then MISSING="$MISSING $f"; fi
+            done < /tmp/hit.txt
+          fi
+          [ -n "$MISSING" ] && echo "锚点丢失：$MISSING" >> "$GITHUB_STEP_SUMMARY"
+
           PUSH=false
           if [ "$CONFLICT" != "true" ] && [ "$TC" = "true" ]; then
             case "$MODE" in
               # 人工 direct：只要不冲突、类型检查过就直推
               direct) PUSH=true ;;
-              # 定时（auto）：再多一道「补丁文件未被上游触碰」的门槛
-              auto) [ "$RISK" != "true" ] && PUSH=true ;;
+              # 定时（auto）：补丁锚点必须完整
+              auto) [ -z "$MISSING" ] && PUSH=true ;;
               *) PUSH=false ;;
             esac
           fi
           echo "push=$PUSH" >> "$GITHUB_OUTPUT"
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
           {
             echo "## 落库判定"
             echo "| 项 | 值 |"
@@ -230,7 +247,8 @@ jobs:
             echo "| mode | $MODE |"
             echo "| 合并冲突 | $CONFLICT |"
             echo "| 类型检查 | $TC |"
-            echo "| 补丁文件被上游改动 | $RISK |"
+            echo "| 上游碰过补丁文件 | $RISK |"
+            echo "| 锚点丢失 | ${MISSING:-无} |"
             echo "| 直推 master | $PUSH |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -276,12 +294,25 @@ jobs:
             REASON="存在冲突"
           elif [ "${{ steps.typecheck.outputs.ok }}" != "true" ]; then
             REASON="类型检查未通过"
-          elif [ "${{ steps.risk.outputs.hit }}" = "true" ]; then
-            REASON="补丁文件受影响"
+          elif [ -n "${{ steps.policy.outputs.missing }}" ]; then
+            REASON="补丁锚点丢失"
           fi
           if [ -n "$REASON" ]; then
             TITLE="[需人工] $TITLE（$REASON）"
           fi
-          gh pr create --base master --head "${{ steps.merge.outputs.branch }}" \
-            --title "$TITLE" --body "自动同步，详见 job summary 的接口面扫描、风险扫描与类型检查结果。" || \
-            echo "PR 创建失败：请确认仓库已开启 Allow GitHub Actions to create and approve pull requests"
+          REPO="${{ github.repository }}"
+          BRANCH="${{ steps.merge.outputs.branch }}"
+          # gh 会按 git remote 推断仓库，本 workflow 加过 upstream remote，
+          # 不显式 --repo 会指到上游仓库（曾报 404 workflow not found）。
+          if gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq 'length' | grep -qv '^0$'; then
+            echo "该分支已有未合并 PR，跳过创建。" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if gh pr create --repo "$REPO" --base master --head "$BRANCH" \
+            --title "$TITLE" --body "自动同步，详见 job summary 的接口面扫描、风险扫描与类型检查结果。"; then
+            echo "已创建 PR：$TITLE" >> "$GITHUB_STEP_SUMMARY"
+          else
+            # 以前这里是 `|| echo`，导致「合并被拦下但没人知道」。现在显式失败。
+            echo "::error::PR 创建失败。请确认仓库已开启 Settings → Actions → Allow GitHub Actions to create and approve pull requests，或手动处理分支 $BRANCH"
+            exit 1
+          fi

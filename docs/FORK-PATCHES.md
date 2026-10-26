@@ -31,7 +31,8 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
 | `apps/web/src/routes/admin/gm/` | 定向发货页 + 角色选择器 |
 | `apps/web/src/routes/admin/audit/` | GM 审计页 |
 | `apps/web/src/routes/admin/redeem-codes/batch/` | 批量生成兑换码页 |
-| `drizzle/0068_gm_panel.sql` | 迁移：兑换码定向列 + 审计表（原 0067，因上游撞号顺延） |
+| `drizzle/fork/001_gm_panel.sql` | fork 自有迁移：兑换码定向列 + 审计表（**刻意不放进 drizzle 编号序列**，见「迁移编号隔离」） |
+| `scripts/apply-fork-migrations.sh` | fork 迁移执行器：`__fork_migrations` 记账、幂等、支持 `--baseline` |
 | `.github/scripts/scan-interface-surface.sh` | 接口面快照扫描 |
 | `.github/scripts/detect-gm-panel.sh` | 上游是否已实现 GM 的探测器 |
 | `.github/workflows/sync-upstream.yml` | 每日同步 |
@@ -82,16 +83,18 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
 
 | 触发方式 | 直推 master 的条件 | 否则 |
 | --- | --- | --- |
-| 定时（`mode` 为空，按 `auto` 处理） | 无冲突 **且** 类型检查通过 **且** 补丁文件未被上游触碰 | 推 sync 分支 + 开 PR |
+| 定时（`mode` 为空，按 `auto` 处理） | 无冲突 **且** 类型检查通过 **且** 补丁锚点完整 | 推 sync 分支 + 开 PR |
 | 手动 `direct` | 无冲突 **且** 类型检查通过 | 推 sync 分支 + 开 PR |
 | 手动 `pr` | 永不直推 | 开 PR |
 | 手动 `report` | 不合并、不推分支 | 只写 summary |
 
-PR 标题会带原因：`[需人工] …（存在冲突 / 类型检查未通过 / 补丁文件受影响）`。
+PR 标题会带原因：`[需人工] …（存在冲突 / 类型检查未通过 / 补丁锚点丢失）`。
 类型检查失败时，最后 30 行输出会写进 job summary，便于判断是代码问题还是环境问题。
 
-> `auto` 比 `direct` 多一道门槛：补丁触碰的文件被上游改动时不自动落库。
-> 因为那种情况往往需要人工决定「让位上游还是保留自己的实现」。
+**「补丁锚点完整」取代了原来的「上游没碰过补丁文件」**。原因：按文件粒度拦截太保守——
+`schema.ts` 这类追加式改动 git 能自动合并，但上游 300 个提交里改了 16 次，
+按文件拦等于每三次上游批次就废掉一次自动合并，最后表现为「永远落后」。
+现在改为在上游碰过的补丁文件里检查 `daoyou-fork` 锚点是否还在，丢了才拦。
 
 ### 为什么第 2 步绝不能 `git checkout`
 
@@ -152,7 +155,52 @@ gh workflow run docker-publish.yml --ref master --repo "${{ github.repository }}
 
 需要强制重建（比如镜像缓存出问题）：Actions 里手动 `workflow_dispatch`，它带 `push` 开关。
 
+## 迁移编号隔离（根治同步冲突）
+
+**问题数据**（2026-10-26 实测，上游近 300 个提交）：
+
+| 文件 | 上游改动次数 | 是否真冲突 |
+| --- | --- | --- |
+| `drizzle/meta/_journal.json` | **123** | 每次上游加迁移都冲突（idx 撞号） |
+| `drizzle/meta/00NN_snapshot.json` | 每次加迁移一次 | `add/add` 冲突 |
+| `apps/api/src/lib/drizzle/schema.ts` | 16 | **自动合并，不冲突** |
+
+结论：同步冲突**几乎 100% 来自「fork 迁移占用了上游的编号序列」**，
+与我们改的业务代码无关。把迁移顺延到下一个号只能撑到上游再排到那个号——治标。
+
+### 做法：fork 迁移退出编号空间
+
+```
+drizzle/              上游的迁移与 meta，我们不改（merge 冲突时一律取 upstream）
+drizzle/fork/         fork 自有迁移，编号自排：001_gm_panel.sql、002_xxx.sql…
+```
+
+- **记账表** `__fork_migrations(hash, name, applied_at)`，`hash = sha256(SQL 文件内容)`，
+  与 drizzle 的 `__drizzle_migrations` 完全独立。
+- **执行** `bash scripts/apply-fork-migrations.sh`；SQL 与记账在同一个事务里（`psql -1 -f ... -c insert`），
+  要么都成要么都回滚。
+- **已有数据的库首次接入**：`bash scripts/apply-fork-migrations.sh --baseline`
+  （只记账不执行，避免把已存在的列再 ADD 一遍）。
+- **`drizzle/meta/_journal.json` 一旦冲突，直接 `git checkout --theirs`** ——
+  我们的版本里不该有 fork 条目，取上游的永远正确。
+
+### 新增一个 fork 迁移
+
+1. 写 `drizzle/fork/00N_描述.sql`（**不要** `drizzle-kit generate`，不要碰 journal）
+2. 部署后执行 `bash scripts/apply-fork-migrations.sh`
+3. 登记到 `.github/fork-paths.txt`（目录已登记则无需逐文件）
+
+### 副作用与代价
+
+- 生产镜像不含 `drizzle-kit`，迁移本来就靠外部执行，所以这个改动不增加部署复杂度。
+- `drizzle-kit generate` 只反映上游 schema，不会看到 fork 迁移——这是刻意的：
+  fork 的 schema 变更手工写 SQL，换来的是同步永不因迁移冲突。
+- **记得跑脚本**，否则新环境会缺列。部署流程里应包含这一步。
+
 ## 迁移编号冲突流程（0067 撞车实录）
+
+> **历史存档（2026-10-26）**：本节做法（顺延编号 + 线上补记账）已不再使用。
+> fork 迁移已迁出 drizzle 编号空间（见上一节），此流程只在上游之外的场景才需要参考。
 
 fork 的迁移编号和上游**独立递增**，两边都会自然用到同一个号。2026-10-22 同步时，
 上游 `0067_sponsorship_order_recipients`（when `1792637821975`）撞上了我们的
