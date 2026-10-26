@@ -262,10 +262,21 @@ jobs:
       - name: 直接推送 master
         if: steps.policy.outputs.push == 'true'
         run: |
-          set -euo pipefail
+          set -uo pipefail
           git checkout master
           git merge --ff-only "${{ steps.merge.outputs.branch }}" 2>/dev/null || git merge --no-edit "${{ steps.merge.outputs.branch }}"
-          git push origin master
+          # 人工可能刚好在这几十秒内也推了 master，push 会被拒。
+          # 2026-10-26 09:04 就这么失败过一次（失败在「直接推送 master」）。
+          # 处理：拉远端再合一次后重试，而不是直接红。
+          if ! git push origin master; then
+            echo "push 被拒，拉取远端后重试…"
+            git fetch -q origin master
+            if ! git merge --no-edit origin/master; then
+              echo "::error::与远端 master 合并冲突，需人工处理"
+              exit 1
+            fi
+            git push origin master || { echo "::error::重试后仍无法推送 master"; exit 1; }
+          fi
 
       - name: 触发镜像重建
         if: steps.policy.outputs.push == 'true'
