@@ -212,6 +212,12 @@ class Parser {
         .flatMap(unit => unit.tags.filter(tag => tag.startsWith(prefix) && !own.has(tag))) ?? []).size
     }
     if (name === 'enemyCount') return this.env.state?.units.filter(u => u.side !== this.env.source.side && !u.flags.dead && !u.flags.downed && !u.flags.escaped && !u.flags.benched).length ?? 0
+    if (name === 'allyStandingPets') return this.env.state?.units.filter(u => u.side === this.env.source.side && u.kind === 'pet' && isStanding(u)).length ?? 0
+    if (name === 'ownStandingPet') return this.env.state?.units.some(u => u.kind === 'pet' && u.ownerId === this.env.source.id && isStanding(u)) ? 1 : 0
+    if (name === 'ownPetHp' || name === 'ownPetMaxHp') {
+      const pet = this.env.state?.units.find(u => u.kind === 'pet' && u.ownerId === this.env.source.id && isStanding(u))
+      return pet ? pet.attrs[name === 'ownPetHp' ? 'hp' : 'maxHp'] : 0
+    }
     if (name === 'actionKillsTarget') return this.env.target && this.env.killedTargetIds?.includes(this.env.target.id) ? 1 : 0
     if (name === 'normalTarget') return this.env.target && this.env.normalTargetIds?.includes(this.env.target.id) ? 1 : 0
     if (name === 'enemyPlayers') return this.env.state?.units.filter(u => u.side !== this.env.source.side && u.kind === 'player').length ?? 0
@@ -225,6 +231,10 @@ class Parser {
     if (name.startsWith('effective.')) return effectiveAttrs(this.env.source)[name.slice(10) as keyof Unit['attrs']] ?? 0
     if (name.startsWith('allyTagCount.')) return this.env.state?.units.filter(u => u.side === this.env.source.side && u.kind === 'player' && u.tags.includes(name.slice(13))).length ?? 0
     if (name.startsWith('known.')) return [...this.env.source.skills, ...this.env.source.passives].includes(name.slice(6)) ? 1 : 0
+    if (name.startsWith('statusAge.')) {
+      const status = this.env.source.statuses.find(s => s.kind === name.slice('statusAge.'.length) && s.sourceId === this.env.source.id)
+      return status && this.env.state ? Math.max(0, this.env.state.round - status.appliedRound) : 0
+    }
     if (name.startsWith('statusRounds.')) return this.env.source.statuses.find(s => s.kind === name.slice(13))?.remainingRounds ?? 0
     if (name.startsWith('targetStatusRounds.')) return this.env.target?.statuses.find(s => s.kind === name.slice(19))?.remainingRounds ?? 0
     if (name.startsWith('ownedTargetStatus.')) return this.env.target?.statuses.some(s => s.kind === name.slice(18) && s.sourceId === this.env.source.id) ? 1 : 0
