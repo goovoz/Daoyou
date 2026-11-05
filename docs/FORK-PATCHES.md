@@ -58,6 +58,18 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
 > 13 处已远超「3–4 处」的常见阈值，但每处都是单行/单块级追加，且都带锚点。
 > 再增加 L1 前请先考虑能否放进 L0。完整清单以 `.github/fork-patches.json` 的 `touches` 为准。
 
+### L1 冲突实录（上游每次改到这些文件，都要手工判一次）
+
+| 日期 | 文件 | 冲突形态 | 处置 |
+| --- | --- | --- | --- |
+| 2026-11-06 | `apps/api/src/admin/admin.module.ts` | 上游新增 `AdminDungeonScenariosController/Service`，与 fork 的 `AdminLlmConfig*` 追加在同一位置 | 取并集，两个都留；Nest 的声明顺序无语义 |
+| 2026-11-06 | `apps/api/src/utils/aiClient.ts` | 上游重构 `resolveModel`（签名多一个 `options`、`createLlmDebugFetch` 改三参数、抽出 `baseFetchFor`），与 fork 的「本地接口」前置分支相撞 | import 取并集；本地分支复用上游的 `baseFetch`，保持「长任务不设传输层等待」的语义 |
+
+> `aiClient.ts` 的 `resolveModel` 是这套机制里最脆的一处：上游每重构一次模型解析，
+> 这里都要重判一次。解冲突时**先看上游这次把 fetch / timeout 逻辑挪到了哪一层**，
+> 再决定 fork 分支复用哪个封装；只把 import 并起来会编译通过，但长任务会悄悄退回
+> 300 秒响应头超时。
+
 ### L2 —— 禁止改动
 
 `apps/api/src/dev-tools/**`、`app.module.ts`、`ResourceEventCommitter`、库存与战斗领域层。
