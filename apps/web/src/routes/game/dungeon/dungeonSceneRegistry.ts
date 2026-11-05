@@ -11,6 +11,12 @@ export interface DungeonSceneDescriptor {
   backAction: DungeonSceneBackAction;
   density: DungeonSceneDensity;
   loadingMessage: string;
+  /** 不显示顶部返回条：剧本进行中由页面自己的状态栏提供返回与结束。 */
+  hideChrome?: boolean;
+  /** 不显示场景标题：页面自己的切换器就是身份。 */
+  hideTitle?: boolean;
+  /** 标题左侧的题图（emoji），与标题同高，作为本页的印记。 */
+  icon?: string;
 }
 
 export type DungeonSceneState =
@@ -20,7 +26,6 @@ export type DungeonSceneState =
   | 'exploring'
   | 'battle_preparation'
   | 'in_battle'
-  | 'looting'
   | 'settlement';
 
 const dungeonSceneDescriptors: Record<
@@ -48,8 +53,8 @@ const dungeonSceneDescriptors: Record<
     loadingMessage: '请先凝聚真身。',
   },
   map_selection: {
-    sceneLabel: '云游探秘',
-    subtitle: '择一处秘境，定此行的起点与气数。',
+    sceneLabel: '云游',
+    hideTitle: true,
     backAction: {
       label: '返回洞府',
       href: '/game',
@@ -87,16 +92,6 @@ const dungeonSceneDescriptors: Record<
     density: 'full',
     loadingMessage: '战局演算中……',
   },
-  looting: {
-    sceneLabel: '战后休整',
-    subtitle: '余波未散，决定是继续深入，还是及时收手。',
-    backAction: {
-      label: '返回洞府',
-      href: '/game',
-    },
-    density: 'card',
-    loadingMessage: '正在整理战后余波……',
-  },
   settlement: {
     sceneLabel: '探索结束',
     subtitle: '尘埃落定，此行所得已可回带洞府。',
@@ -112,8 +107,7 @@ const dungeonSceneDescriptors: Record<
 export const defaultDungeonSceneDescriptor =
   dungeonSceneDescriptors.map_selection;
 
-const DUNGEON_SCENE_TOP_OFFSET_FALLBACK =
-  'calc(var(--app-safe-top) + 3.5rem)';
+const DUNGEON_SCENE_TOP_OFFSET_FALLBACK = 'calc(var(--app-safe-top) + 3.5rem)';
 
 export const DUNGEON_SCENE_CONTENT_TOP_GAP = `calc(var(--dungeon-scene-top-offset, ${DUNGEON_SCENE_TOP_OFFSET_FALLBACK}) + 0.5rem)`;
 export const DUNGEON_SCENE_CONTENT_BOTTOM_GAP =

@@ -1,11 +1,11 @@
-import { DungeonFlowError } from '@server/dungeon/application/flow/DungeonFlowService.js';
 import { CombatV6BuildError } from '@server/combat/application/CombatV6BuildService.js';
-import { redisLockErrorResponse } from '@server/lib/http/errors.js';
-import { DungeonStartError } from '@server/dungeon/application/DungeonApplicationService.js';
 import {
   QiInsufficientError,
   QiServiceError,
 } from '@server/cultivator/application/QiService.js';
+import { DungeonStartError } from '@server/dungeon/application/DungeonApplicationService.js';
+import { DungeonFlowError } from '@server/dungeon/application/flow/DungeonFlowService.js';
+import { redisLockErrorResponse } from '@server/lib/http/errors.js';
 import { ZodError } from 'zod';
 import { apiErrorFilter } from '../http/error-filter.js';
 import { JsonBodyParseError } from '../http/json-body.js';
@@ -25,6 +25,11 @@ function flowError(error: unknown): Response | undefined {
 export const DungeonStartErrors = apiErrorFilter((error) => {
   const flow = flowError(error);
   if (flow) return flow;
+  if (error instanceof ZodError)
+    return Response.json(
+      { error: '开局请求无效，请刷新后重试' },
+      { status: 400 },
+    );
   if (error instanceof DungeonStartError)
     return Response.json(
       {
@@ -67,6 +72,12 @@ export const DungeonActionErrors = apiErrorFilter((error) => {
   return Response.json({ error: message }, { status });
 });
 
+export const DungeonHistoryErrors = apiErrorFilter((error) =>
+  error instanceof ZodError
+    ? Response.json({ error: '探险记录编号无效' }, { status: 400 })
+    : undefined,
+);
+
 function recoveryErrors(fallback: string) {
   return apiErrorFilter(
     (error) =>
@@ -88,8 +99,6 @@ function recoveryErrors(fallback: string) {
 }
 
 export const DungeonRecoverErrors = recoveryErrors('副本恢复失败');
-export const DungeonContinueErrors = recoveryErrors('副本推进失败');
-export const DungeonEscapeErrors = recoveryErrors('副本结算失败');
 
 export const DungeonQuitErrors = apiErrorFilter(
   (error) =>

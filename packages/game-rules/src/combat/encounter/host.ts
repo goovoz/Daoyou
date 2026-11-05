@@ -9,7 +9,6 @@ import type {
   CompiledCombatV6TrainingEncounterV1,
   TrainingEncounterOutcome,
 } from '@daoyou/game-domain/combat';
-import { playerAppearances } from '../unit-appearance.js';
 
 import { AUTO_POLICY_VERSION } from '@daoyou/game-domain/combat/auto';
 
@@ -38,6 +37,7 @@ import { type BattleEvent, type Command, type SkillDef, type Unit } from '@daoyo
 
 
 import { compileCombatV6TrainingEncounterV1 } from './compiler.js';
+import { withCombatV6SkillPreviews } from '../skill-previews.js';
 
 
 export const TrainingHostErrorCode = {
@@ -146,7 +146,10 @@ export class CombatV6PveHostSession {
   }
 
   queryCommands(unitId = this.playerId) {
-    return this.battle.queryCommands(unitId);
+    const options = this.battle.queryCommands(unitId);
+    return unitId === this.playerId
+      ? withCombatV6SkillPreviews(this.battle.state, this.skills, this.statusDefs, options)
+      : options;
   }
 
   controlledCommandOptions() {
@@ -357,7 +360,7 @@ export class CombatV6TrainingHostSessionV1
     private readonly compiled: CompiledCombatV6TrainingEncounterV1,
     restored?: CombatV6TrainingRuntimeSnapshotV1,
   ) {
-    super(compiled, restored, playerAppearances(compiled.sourcePlayerInput));
+    super(compiled, restored, compiled.unitAppearances);
   }
 
   runtimeSnapshot(): CombatV6TrainingRuntimeSnapshotV1 {

@@ -6,6 +6,7 @@ import {
   pickLlmRouteByUserHash,
   resolveLlmRouteModels,
   resolveServerLlmRoutes,
+  resolveServerLlmTierRoutes,
 } from './routing.js';
 
 const BOTH_KEYS = { alibaba: true, deepseek: true };
@@ -26,15 +27,6 @@ describe('parseLlmRouteSpec', () => {
     ]);
   });
 
-  it('allows the same provider with different models', () => {
-    expect(
-      parseLlmRouteSpec('alibaba/qwen3.7-flash:70,alibaba/qwen-plus:30'),
-    ).toEqual([
-      { provider: 'alibaba', model: 'qwen3.7-flash', weight: 70 },
-      { provider: 'alibaba', model: 'qwen-plus', weight: 30 },
-    ]);
-  });
-
   it.each([
     ['', 'Expected provider[/model][:weight]'],
     ['openai', 'Expected one of'],
@@ -50,23 +42,6 @@ describe('parseLlmRouteSpec', () => {
 });
 
 describe('resolveLlmRouteModels', () => {
-  it('fills omitted models from defaults', () => {
-    expect(
-      resolveLlmRouteModels(parseLlmRouteSpec('alibaba,deepseek')),
-    ).toEqual([
-      {
-        provider: 'alibaba',
-        model: LLM_PROVIDER_DEFAULT_MODELS.alibaba,
-        weight: 1,
-      },
-      {
-        provider: 'deepseek',
-        model: LLM_PROVIDER_DEFAULT_MODELS.deepseek,
-        weight: 1,
-      },
-    ]);
-  });
-
   it('keeps explicit models and fills the rest from provider defaults', () => {
     expect(
       resolveLlmRouteModels(parseLlmRouteSpec('alibaba/qwen-plus,deepseek')),
@@ -88,35 +63,18 @@ describe('resolveLlmRouteModels', () => {
 });
 
 describe('resolveServerLlmRoutes', () => {
-  it('covers single and multi provider / model combinations', () => {
-    expect(
-      resolveServerLlmRoutes({
-        providerSpec: 'alibaba/qwen3.7-flash',
-        availableProviders: BOTH_KEYS,
-      }),
-    ).toEqual([{ provider: 'alibaba', model: 'qwen3.7-flash', weight: 1 }]);
-
-    expect(
-      resolveServerLlmRoutes({
-        providerSpec: 'alibaba/qwen3.7-flash:70,alibaba/qwen-plus:30',
-        availableProviders: BOTH_KEYS,
-      }),
-    ).toHaveLength(2);
-
-    expect(
-      resolveServerLlmRoutes({
-        providerSpec: 'alibaba/qwen3.7-flash:70,deepseek/deepseek-v4-flash:30',
-        availableProviders: BOTH_KEYS,
-      }).map(llmRouteKey),
-    ).toEqual(['alibaba/qwen3.7-flash', 'deepseek/deepseek-v4-flash']);
-
+  it('resolves weighted routes for multiple providers and distinct models of one provider', () => {
     expect(
       resolveServerLlmRoutes({
         providerSpec:
           'alibaba/qwen3.7-flash:50,alibaba/qwen-plus:20,deepseek/deepseek-v4-flash:30',
         availableProviders: BOTH_KEYS,
       }),
-    ).toHaveLength(3);
+    ).toEqual([
+      { provider: 'alibaba', model: 'qwen3.7-flash', weight: 50 },
+      { provider: 'alibaba', model: 'qwen-plus', weight: 20 },
+      { provider: 'deepseek', model: 'deepseek-v4-flash', weight: 30 },
+    ]);
   });
 
   it('auto-detects one provider and uses its default model', () => {
@@ -151,6 +109,44 @@ describe('resolveServerLlmRoutes', () => {
         availableProviders: { alibaba: true },
       }),
     ).toThrow('API key is not set');
+  });
+});
+
+describe('resolveServerLlmTierRoutes', () => {
+  const input = {
+    basicSpec: 'alibaba/qwen3.7-flash',
+    advancedSpec: 'deepseek/deepseek-v4.1-flash-1017:2,alibaba/qwen3.8-flash',
+    availableProviders: BOTH_KEYS,
+  };
+
+  it('parses the advanced group with the same format and weights', () => {
+    expect(resolveServerLlmTierRoutes(input, 'basic')).toEqual([
+      { provider: 'alibaba', model: 'qwen3.7-flash', weight: 1 },
+    ]);
+    expect(resolveServerLlmTierRoutes(input, 'advanced')).toEqual([
+      { provider: 'deepseek', model: 'deepseek-v4.1-flash-1017', weight: 2 },
+      { provider: 'alibaba', model: 'qwen3.8-flash', weight: 1 },
+    ]);
+  });
+
+  it('falls back to the basic group when the advanced group is unset', () => {
+    expect(
+      resolveServerLlmTierRoutes({ ...input, advancedSpec: '  ' }, 'advanced'),
+    ).toEqual(resolveServerLlmTierRoutes(input, 'basic'));
+  });
+
+  it('keeps basic scenes working when the advanced group is misconfigured', () => {
+    const broken = { ...input, availableProviders: { alibaba: true } };
+    expect(resolveServerLlmTierRoutes(broken, 'basic')).toHaveLength(1);
+    expect(() => resolveServerLlmTierRoutes(broken, 'advanced')).toThrow(
+      'LLM_ADVANCED_PROVIDER includes "deepseek" but its API key is not set.',
+    );
+    expect(() =>
+      resolveServerLlmTierRoutes(
+        { ...input, advancedSpec: 'openai/gpt' },
+        'advanced',
+      ),
+    ).toThrow('Invalid LLM_ADVANCED_PROVIDER "openai"');
   });
 });
 

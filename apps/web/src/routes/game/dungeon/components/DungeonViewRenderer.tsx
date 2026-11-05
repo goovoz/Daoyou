@@ -1,5 +1,4 @@
-import { GameSceneLoading, GameSceneSection } from '@app/components/game-shell';
-import { InkSection } from '@app/components/layout';
+import { GameSceneLoading } from '@app/components/game-shell';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkCard } from '@app/components/ui/InkCard';
 import { InkNotice } from '@app/components/ui/InkNotice';
@@ -7,16 +6,16 @@ import type { BattleCallbackData } from '@app/lib/hooks/dungeon/types';
 import { DungeonViewState } from '@app/lib/hooks/dungeon/useDungeonViewModel';
 import { getMapNode } from '@daoyou/game-content/world/map';
 import type { Cultivator } from '@daoyou/game-domain/character';
+import type { ExorcismSupplyChoice } from '@daoyou/game-domain/dungeon/exorcism';
 import type {
-  DungeonMaterialSelection,
-  DungeonOption,
   DungeonRecoverAction,
   DungeonState,
 } from '@daoyou/game-domain/dungeon';
-import {
-  isConditionStatusActive,
-  getConditionStatusTemplate,
-} from '@daoyou/game-rules/condition';
+import type {
+  MysteryAction,
+  MysteryAnswers,
+  MysteryEvidence,
+} from '@daoyou/game-domain/dungeon/mystery';
 import { dungeonReadiness } from '@daoyou/game-rules/dungeon';
 import { canChallengeDungeonRealm } from '@daoyou/game-rules/world/dungeon';
 import { DungeonSceneScreen } from '../dungeonScene';
@@ -26,11 +25,14 @@ import {
 } from '../dungeonSceneRegistry';
 import { BattlePreparation } from './BattlePreparation';
 import { DungeonBattle } from './DungeonBattle';
-import { DungeonExploring } from './DungeonExploring';
-import { DungeonLooting } from './DungeonLooting';
 import { DungeonMapSelector } from './DungeonMapSelector';
+import { DungeonMystery } from './DungeonMystery';
 import type { DungeonDisplayResources } from './DungeonRunPanel';
+import { DungeonModeSwitch } from './DungeonModeSwitch';
 import { DungeonSettlement } from './DungeonSettlement';
+import { ExorcismEncounter } from './ExorcismEncounter';
+import { ExorcismSupply } from './ExorcismSupply';
+import { exorcismBattleTitle } from './exorcismView';
 
 interface DungeonViewRendererProps {
   viewState: DungeonViewState;
@@ -42,18 +44,32 @@ interface DungeonViewRendererProps {
   processing: boolean;
   actions: {
     beginBattle: () => Promise<void>;
-    startDungeon: (nodeId: string) => Promise<void>;
-    performAction: (
-      option: DungeonOption,
-      selections?: DungeonMaterialSelection[],
-    ) => Promise<void>;
+    startDungeon: (nodeId: string, mode?: 'mystery' | 'exorcism') => Promise<void>;
+    exorcismSupply: (choice: ExorcismSupplyChoice) => Promise<void>;
+    exorcismRetreat: (title: string, content: string) => Promise<void>;
+    refreshState: () => Promise<void>;
     quitDungeon: () => Promise<boolean>;
-    continueLooting: () => Promise<void>;
-    escapeLooting: () => Promise<void>;
     recoverDungeon: (action: DungeonRecoverAction) => Promise<void>;
     completeBattle: (data: BattleCallbackData | null) => void;
+    mysteryAct: (action: MysteryAction) => Promise<void>;
+    mysteryDeduce: (
+      answers: MysteryAnswers,
+      evidence: MysteryEvidence,
+    ) => Promise<void>;
+    mysteryTalk: (npcId: string, question: string) => Promise<boolean>;
+    mysteryGuard: (guardId: string) => Promise<void>;
   };
   onSettlementConfirm?: () => void;
+  mode?: 'mystery' | 'exorcism';
+  onModeChange?: (mode: 'mystery' | 'exorcism') => void;
+}
+
+function exorcismRunScene(state: DungeonState) {
+  const node = getMapNode(state.mapNodeId);
+  return {
+    location: node?.name ?? '云游·除祟',
+    scene: node?.dungeon_config?.scenario?.scene,
+  };
 }
 
 function resolveDungeonRunSceneDescriptor(
@@ -71,132 +87,83 @@ function resolveDungeonRunSceneDescriptor(
   };
 }
 
-function renderPreparationNotice(
-  cultivator: Pick<Cultivator, 'realm' | 'condition'> | null,
-  displayResources: DungeonDisplayResources | undefined,
-  selectedNode: ReturnType<typeof getMapNode> | null,
-  readiness: ReturnType<typeof dungeonReadiness> | null,
-) {
-  if (!cultivator) return null;
-
-  const activeStatuses = (cultivator.condition?.statuses ?? []).filter(
-    (status) => isConditionStatusActive(status),
-  );
-  const statusNames = activeStatuses
-    .slice(0, 2)
-    .map((status) => getConditionStatusTemplate(status.key)?.name ?? status.key)
-    .join('、');
-  const hp = displayResources?.hp;
-  const mp = displayResources?.mp;
-  const hpPercent = Math.max(0, Math.min(100, Math.round(hp?.percent ?? 0)));
-  const mpPercent = Math.max(0, Math.min(100, Math.round(mp?.percent ?? 0)));
-  const nodeRealm = selectedNode?.realm_requirement;
-  const realmRisk =
-    nodeRealm && !canChallengeDungeonRealm(cultivator.realm, nodeRealm)
-      ? 'danger'
-      : nodeRealm === cultivator.realm
-        ? 'warning'
-        : 'info';
-  const reminder = readiness?.shouldBlock
-    ? readiness.reasons[0]
-    : realmRisk === 'danger'
-      ? `秘境要求${nodeRealm}，高于当前${cultivator.realm}境界。`
-      : statusNames
-        ? `当前有${statusNames}状态，出行前可先调息。`
-        : hpPercent < 60 || mpPercent < 60
-          ? '气血或法力偏低，出行前可先补足。'
-          : '状态平稳，可以出行；战后可休整，或带着已有收获离开。';
-
+/** 出行前的状态：只列气血、法力，不足时去灵眼之泉恢复。 */
+function TravelStatus({
+  displayResources,
+}: {
+  displayResources: DungeonDisplayResources | undefined;
+}) {
+  if (!displayResources) return null;
+  const { hp, mp } = displayResources;
   return (
-    <GameSceneSection
-      title="出行准备"
-      help={{
-        title: '秘境探索说明',
-        content: (
-          <div className="space-y-3 text-sm leading-7">
-            <p>每轮选择前可查看代价与危险度，离开秘境时结算收获。</p>
-            <p>
-              气血、法力、异常状态用于出行前判断，不作为探索选项的通过条件。
-            </p>
-            <p>
-              遭遇战逐行动播报；胜利后可继续深入或离开，失败或成功逃跑则结算此前收获。
-            </p>
-            <p>
-              探索休整时可使用恢复丹药；战斗中不能用药，场次之间不会自动恢复气血与法力。
-            </p>
-          </div>
-        ),
-      }}
-    >
-      <div className="border-ink/20 bg-paper space-y-4 border border-dashed p-4 text-sm leading-7">
-        <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-              <span className="text-ink-secondary">气血</span>
-              <span className="text-ink font-mono">
-                {Math.floor(hp?.current ?? 0)}/{Math.floor(hp?.max ?? 0)}
-              </span>
-            </div>
-            <div className="bg-ink/10 h-1.5 overflow-hidden">
-              <div
-                className="bg-crimson h-full"
-                style={{ width: `${hpPercent}%` }}
-              />
-            </div>
-          </div>
-          <div>
-            <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-              <span className="text-ink-secondary">法力</span>
-              <span className="text-ink font-mono">
-                {Math.floor(mp?.current ?? 0)}/{Math.floor(mp?.max ?? 0)}
-              </span>
-            </div>
-            <div className="bg-ink/10 h-1.5 overflow-hidden">
-              <div
-                className="h-full bg-[var(--color-tier-xuan)]"
-                style={{ width: `${mpPercent}%` }}
-              />
-            </div>
-          </div>
-        </div>
+    <div className="text-ink-secondary flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+      <span>
+        气血{' '}
+        <span className="text-ink font-mono font-semibold tracking-tight">
+          {Math.floor(hp.current)}/{Math.floor(hp.max)}
+        </span>
+      </span>
+      <span>
+        法力{' '}
+        <span className="text-ink font-mono font-semibold tracking-tight">
+          {Math.floor(mp.current)}/{Math.floor(mp.max)}
+        </span>
+      </span>
+      <InkButton href="/game/inn" variant="secondary">
+        恢复状态
+      </InkButton>
+    </div>
+  );
+}
 
-        <div className="grid gap-2 md:grid-cols-2">
-          <p>异常：{statusNames || '无'}</p>
-          <p>
-            秘境：
-            {realmRisk === 'danger'
-              ? '越阶'
-              : realmRisk === 'warning'
-                ? '同阶'
-                : selectedNode
-                  ? '稳妥'
-                  : '待选'}
-          </p>
-        </div>
+const HOW_TO = [
+  {
+    title: '调查',
+    text: '点正文里带虚线的字：调查物件、与人交谈、前往别处。多数动作耗 1 点行动力，回到去过的地方不耗；提示每局 3 次。',
+  },
+  {
+    title: '推理',
+    text: '线索自动记进案情板，可以作为推理题的证据。',
+  },
+  {
+    title: '结案',
+    text: '行动力用尽前提交推理。答对且有线索为证，评分才高。',
+  },
+];
 
-        <p
-          className={
-            realmRisk === 'danger' || readiness?.shouldBlock
-              ? 'text-crimson'
-              : 'text-ink-secondary'
-          }
-        >
-          {reminder}
-        </p>
+const EXORCISM_HOW_TO = [
+  {
+    title: '连战',
+    text: '一局四场，一场比一场强，最后是祟主。节点难度越高，敌人越强，奖励也越多。',
+  },
+  {
+    title: '取舍',
+    text: '每场之后选调息或搜寻：要血，还是要东西。回复丹药也能用，但要花你自己的库存。',
+  },
+  {
+    title: '评级',
+    text: '打到哪一步决定评级。胜祟主且状态良好评 S，也可以随时收手。',
+  },
+];
 
-        <div className="flex flex-wrap gap-2">
-          <InkButton href="/game/map-v2" variant="secondary">
-            {selectedNode ? '重选秘境' : '前往地图'}
-          </InkButton>
-          <InkButton href="/game/inn" variant="secondary">
-            去灵眼之泉
-          </InkButton>
-          <InkButton href="/game/craft/alchemy" variant="secondary">
-            去炼丹房
-          </InkButton>
-        </div>
-      </div>
-    </GameSceneSection>
+/** 秘境首页的玩法速览：两种玩法各三步。 */
+function ModeHowTo({ mode }: { mode: 'mystery' | 'exorcism' }) {
+  const steps = mode === 'exorcism' ? EXORCISM_HOW_TO : HOW_TO;
+  return (
+    <section className="space-y-3">
+      <h2 className="text-ink-secondary text-sm">怎么玩</h2>
+      <ol className="space-y-3">
+        {steps.map((step, index) => (
+          <li key={step.title} className="flex gap-3 text-sm leading-7">
+            <span className="text-crimson font-mono">{index + 1}</span>
+            <span>
+              <span className="font-semibold">{step.title}</span>
+              <span className="text-ink-secondary"> · {step.text}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
@@ -210,6 +177,8 @@ export function DungeonViewRenderer({
   processing,
   actions,
   onSettlementConfirm,
+  mode = 'mystery',
+  onModeChange = () => undefined,
 }: DungeonViewRendererProps) {
   if (viewState.type === 'loading') {
     const descriptor = resolveDungeonSceneDescriptor('loading');
@@ -233,19 +202,76 @@ export function DungeonViewRenderer({
     );
   }
 
+  if (viewState.type === 'exorcism_supply') {
+    return (
+      <DungeonSceneScreen
+        descriptor={{
+          ...resolveDungeonRunSceneDescriptor('exploring', viewState.state),
+          density: 'wide',
+          hideTitle: true,
+        }}
+      >
+        <ExorcismSupply
+          {...exorcismRunScene(viewState.state)}
+          run={viewState.run}
+          processing={processing}
+          onSupply={actions.exorcismSupply}
+          onRetreat={actions.exorcismRetreat}
+          onRefresh={actions.refreshState}
+        />
+      </DungeonSceneScreen>
+    );
+  }
+
+  if (
+    viewState.type === 'battle_preparation' &&
+    viewState.state.encounter &&
+    viewState.state.exorcism
+  ) {
+    return (
+      <DungeonSceneScreen
+        descriptor={{
+          ...resolveDungeonRunSceneDescriptor(
+            'battle_preparation',
+            viewState.state,
+          ),
+          density: 'wide',
+          hideTitle: true,
+        }}
+      >
+        <ExorcismEncounter
+          {...exorcismRunScene(viewState.state)}
+          // 每一场重新挂载，首领现形只在开局和首领战各播一次。
+          key={viewState.state.encounter.id}
+          run={viewState.state.exorcism}
+          encounter={viewState.state.encounter}
+          processing={processing}
+          onBegin={actions.beginBattle}
+          onRetreat={actions.exorcismRetreat}
+          onRefresh={actions.refreshState}
+        />
+      </DungeonSceneScreen>
+    );
+  }
+
   if (viewState.type === 'battle_preparation' && viewState.state.encounter) {
     return (
       <DungeonSceneScreen
-        descriptor={resolveDungeonRunSceneDescriptor(
-          'battle_preparation',
-          viewState.state,
-        )}
+        descriptor={{
+          ...resolveDungeonRunSceneDescriptor(
+            'battle_preparation',
+            viewState.state,
+          ),
+          hideChrome: Boolean(viewState.state.mysteryView),
+        }}
       >
         <BattlePreparation
           encounter={viewState.state.encounter}
           processing={processing}
           onBegin={actions.beginBattle}
           onQuit={actions.quitDungeon}
+          mode={viewState.state.mysteryView?.pendingBattle}
+          portrait={viewState.state.mysteryView?.pendingFoePortrait}
         />
       </DungeonSceneScreen>
     );
@@ -263,6 +289,9 @@ export function DungeonViewRenderer({
         <DungeonBattle
           battleId={viewState.battleId}
           player={cultivator}
+          {...(viewState.state.exorcism
+            ? exorcismBattleTitle(viewState.state.exorcism)
+            : {})}
           onBattleComplete={actions.completeBattle}
         />
       </DungeonSceneScreen>
@@ -272,33 +301,21 @@ export function DungeonViewRenderer({
   if (viewState.type === 'settlement') {
     return (
       <DungeonSceneScreen
-        descriptor={resolveDungeonSceneDescriptor('settlement')}
+        descriptor={
+          viewState.exorcism
+            ? {
+                ...resolveDungeonSceneDescriptor('settlement'),
+                sceneLabel: '除祟结束',
+              }
+            : resolveDungeonSceneDescriptor('settlement')
+        }
       >
         <DungeonSettlement
           settlement={viewState.settlement}
           realGains={viewState.realGains}
+          mysteryResult={viewState.mystery?.result}
+          exorcism={viewState.exorcism}
           onConfirm={onSettlementConfirm}
-        />
-      </DungeonSceneScreen>
-    );
-  }
-
-  if (viewState.type === 'looting') {
-    return (
-      <DungeonSceneScreen
-        descriptor={resolveDungeonRunSceneDescriptor(
-          'looting',
-          viewState.state,
-        )}
-      >
-        <DungeonLooting
-          state={viewState.state}
-          cultivator={cultivator}
-          displayResources={displayResources}
-          onContinue={actions.continueLooting}
-          onEscape={actions.escapeLooting}
-          onQuit={actions.quitDungeon}
-          processing={processing}
         />
       </DungeonSceneScreen>
     );
@@ -359,7 +376,33 @@ export function DungeonViewRenderer({
     );
   }
 
-  if (viewState.type === 'exploring') {
+  if (viewState.type === 'mystery') {
+    return (
+      <DungeonSceneScreen
+        descriptor={{
+          ...resolveDungeonRunSceneDescriptor('exploring', viewState.state),
+          hideChrome: true,
+        }}
+      >
+        <DungeonMystery
+          view={viewState.view}
+          runId={viewState.state.runId}
+          processing={processing}
+          onAct={actions.mysteryAct}
+          onTalk={actions.mysteryTalk}
+          onGuard={actions.mysteryGuard}
+          onDeduce={actions.mysteryDeduce}
+          onQuit={actions.quitDungeon}
+          scene={
+            getMapNode(viewState.state.mapNodeId)?.dungeon_config?.scenario
+              ?.scene
+          }
+        />
+      </DungeonSceneScreen>
+    );
+  }
+
+  if (viewState.type === 'legacy') {
     return (
       <DungeonSceneScreen
         descriptor={resolveDungeonRunSceneDescriptor(
@@ -367,16 +410,18 @@ export function DungeonViewRenderer({
           viewState.state,
         )}
       >
-        <DungeonExploring
-          key={`${viewState.state.runId}:${viewState.state.currentRound}`}
-          state={viewState.state}
-          lastRound={viewState.lastRound}
-          cultivator={cultivator}
-          displayResources={displayResources}
-          onAction={actions.performAction}
-          onQuit={actions.quitDungeon}
-          processing={processing}
-        />
+        <InkCard className="space-y-4 p-6">
+          <p className="text-ink leading-7">
+            这是旧版云游留下的未完成探索。云游探秘已改为解谜玩法，旧探索无法继续推进；结束后此前已确定的收获照常带回。
+          </p>
+          <InkButton
+            variant="primary"
+            disabled={processing}
+            onClick={() => void actions.quitDungeon()}
+          >
+            结束探索
+          </InkButton>
+        </InkCard>
       </DungeonSceneScreen>
     );
   }
@@ -410,36 +455,33 @@ export function DungeonViewRenderer({
       <DungeonSceneScreen
         descriptor={resolveDungeonSceneDescriptor('map_selection')}
       >
-        <InkCard className="mb-6 p-6">
-          <div className="space-y-4 text-center">
-            <div className="my-4 text-6xl">🏔️</div>
-            <p>
-              修仙界广袤无垠，机缘与危机并存。
-              <br />
-              道友可愿前往，体悟一段未知的旅程？
-            </p>
-          </div>
-        </InkCard>
-        <InkSection title="选择秘境">
+        <div className="mb-6">
+          <DungeonModeSwitch mode={mode} onChange={onModeChange} />
+        </div>
+        {/* 宽屏两栏：左侧选定的秘境与开局，右侧玩法与当前状态。 */}
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
           <DungeonMapSelector
             selectedNode={selectedNode ?? null}
-            onStart={actions.startDungeon}
+            onStart={(nodeId) => actions.startDungeon(nodeId, mode)}
+            mode={mode}
             isStarting={processing}
             readiness={readiness}
             realmBlockReason={realmBlockReason}
             playerRealm={cultivator?.realm}
           />
-        </InkSection>
-        {renderPreparationNotice(
-          cultivator,
-          displayResources,
-          selectedNode ?? null,
-          readiness,
-        )}
-        <div className="mt-4 text-center">
-          <InkButton href="/game/dungeon/history" variant="ghost">
-            📖 查看历史记录
-          </InkButton>
+          <aside className="space-y-6">
+            <ModeHowTo mode={mode} />
+            {mode === 'exorcism' ? (
+              <p className="border-crimson/40 border-l-2 pl-3 text-sm leading-7">
+                入场回满，现实气血不受影响。局内只能靠调息和回复丹药恢复。
+              </p>
+            ) : (
+              <TravelStatus displayResources={displayResources} />
+            )}
+            <InkButton href="/game/dungeon/history" variant="ghost">
+              {mode === 'exorcism' ? '过往云游记录' : '过往探秘记录'}
+            </InkButton>
+          </aside>
         </div>
       </DungeonSceneScreen>
     );

@@ -21,6 +21,8 @@
     "./cultivation": "./dist/public/cultivation.js",
     "./divination": "./dist/public/divination.js",
     "./dungeon": "./dist/public/dungeon.js",
+    "./dungeon/exorcism": "./dist/public/dungeon-exorcism.js",
+    "./dungeon/mystery": "./dist/public/dungeon-mystery.js",
     "./equipment": "./dist/public/equipment.js",
     "./equipment/authoring/base": "./dist/equipment/pack.js",
     "./equipment/authoring/forging": "./dist/equipment/forging-pack.js",
@@ -72,7 +74,7 @@
   },
   "dependencies": {
     "@daoyou/constants": "workspace:*",
-    "zod": "^4.6.4",
+    "zod": "^4.6.7",
     "@daoyou/combat-core": "workspace:*"
   }
 }

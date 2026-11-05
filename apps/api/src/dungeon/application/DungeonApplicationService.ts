@@ -1,20 +1,31 @@
 import type { DungeonExpectedState } from '@daoyou/contracts/combat/dungeon';
-import { RESOURCE_DATA_SCHEMAS } from '@server/lib/resources/schemas.js';
+import type {
+  DungeonMysteryActRequest,
+  DungeonMysteryDeduceRequest,
+  DungeonMysteryGuardRequest,
+  DungeonMysteryTalkRequest,
+} from '@daoyou/contracts/dungeon/mystery';
 import { type ResourceChangeDescriptor } from '@daoyou/contracts/resources';
-import { dungeonReadiness } from '@daoyou/game-rules/dungeon';
 import { getMapNode, isSatelliteNode } from '@daoyou/game-content/world/map';
+import type { ExorcismSupplyChoice } from '@daoyou/game-domain/dungeon/exorcism';
+import { dungeonReadiness } from '@daoyou/game-rules/dungeon';
 import { canChallengeDungeonRealm } from '@daoyou/game-rules/world/dungeon';
 import { dungeonPlayer } from '@server/dungeon/application/flow/combatV6.js';
 import {
   type DungeonFlowService,
   type DungeonPersistenceSettlement,
 } from '@server/dungeon/application/flow/DungeonFlowService.js';
+import {
+  toClientDungeonResult,
+  toClientDungeonState,
+} from '@server/dungeon/application/mystery/mysteryState.js';
 import type { DbTransaction } from '@server/lib/drizzle/db.js';
 import {
   redisLockKeys,
   type RedisLeaseContext,
   type withRedisLock,
 } from '@server/lib/redis/lock.js';
+import { RESOURCE_DATA_SCHEMAS } from '@server/lib/resources/schemas.js';
 import type { Redis } from 'ioredis';
 
 import type { PlayerCommandExecutor } from '@server/player/application/state/CommandExecutors.js';
@@ -22,15 +33,17 @@ import type { PlayerCommandExecutor } from '@server/player/application/state/Com
 import { toPlayerStateMutationResponse } from '@server/player/application/state/ResourceMutationResponse.js';
 
 type DungeonCommand =
-  | { kind: 'start'; mapNodeId: string }
+  | { kind: 'start'; mapNodeId: string; mode?: 'mystery' | 'exorcism' }
   | {
-      kind: 'action';
-      choiceId: number;
-      actionId: string;
-      runId: string;
-      round: number;
-      materialSelections: import('@daoyou/game-domain/dungeon').DungeonMaterialSelection[];
+      kind: 'exorcism-supply';
+      expected: DungeonExpectedState;
+      choice: ExorcismSupplyChoice;
     }
+  | { kind: 'exorcism-retreat'; expected: DungeonExpectedState }
+  | ({ kind: 'mystery-act' } & DungeonMysteryActRequest)
+  | ({ kind: 'mystery-deduce' } & DungeonMysteryDeduceRequest)
+  | ({ kind: 'mystery-talk' } & DungeonMysteryTalkRequest)
+  | ({ kind: 'mystery-guard' } & DungeonMysteryGuardRequest)
   | { kind: 'battle-begin'; encounterId: string }
   | {
       kind: 'recover';
@@ -43,8 +56,6 @@ type DungeonCommand =
         | 'force_quit';
     }
   | { kind: 'quit'; expected: DungeonExpectedState }
-  | { kind: 'looting-continue'; expected: DungeonExpectedState }
-  | { kind: 'looting-escape'; expected: DungeonExpectedState }
   | { kind: 'battle-abandon'; battleId: string }
   | { kind: 'battle-execute'; battleId: string; requestId?: string };
 
@@ -80,7 +91,10 @@ export class DungeonApplicationService {
         timeoutMs: 30000,
         retries: 0,
       },
-      async () => this.flow.getState(cultivatorId, runId),
+      async () => {
+        const state = await this.flow.getState(cultivatorId, runId);
+        return state ? toClientDungeonState(state) : state;
+      },
     );
   }
 
@@ -148,7 +162,11 @@ export class DungeonApplicationService {
             }),
         });
         if (afterCommit) await afterCommit();
-        return toPlayerStateMutationResponse(committed);
+        // 持久化会补全 runId 等字段，投影必须在提交之后进行。
+        return toPlayerStateMutationResponse({
+          ...committed,
+          result: toClientDungeonResult(committed.result),
+        });
       },
     );
     if (cacheKey) {
@@ -283,19 +301,27 @@ export async function executeDungeonPersistenceCommand<T>(args: {
 function dungeonCommandSource(command: DungeonCommand): string {
   switch (command.kind) {
     case 'start':
-      return 'dungeon_start';
-    case 'action':
-      return 'dungeon_action';
+      return command.mode === 'exorcism'
+        ? 'dungeon_exorcism_start'
+        : 'dungeon_start';
+    case 'exorcism-supply':
+      return 'dungeon_exorcism_supply';
+    case 'exorcism-retreat':
+      return 'dungeon_exorcism_retreat';
+    case 'mystery-act':
+      return 'dungeon_mystery_act';
+    case 'mystery-deduce':
+      return 'dungeon_mystery_deduce';
+    case 'mystery-talk':
+      return 'dungeon_mystery_talk';
+    case 'mystery-guard':
+      return 'dungeon_mystery_guard';
     case 'battle-begin':
       return 'dungeon_battle_begin';
     case 'recover':
       return `dungeon_recover_${command.action}`;
     case 'quit':
       return 'dungeon_quit';
-    case 'looting-continue':
-      return 'dungeon_looting_continue';
-    case 'looting-escape':
-      return 'dungeon_looting_escape';
     case 'battle-abandon':
       return 'dungeon_battle_abandon';
     case 'battle-execute':
@@ -325,36 +351,27 @@ async function prepareDungeonCommand(
   }
   switch (command.kind) {
     case 'start':
-      return flow.startDungeon(cultivatorId, command.mapNodeId, options);
-    case 'action': {
-      const state = await flow.getState(cultivatorId);
-      if (
-        !state ||
-        state.runId !== command.runId ||
-        (state.currentRound !== command.round &&
-          !state.costLedger?.some(
-            (entry) => entry.actionId === command.actionId,
-          ))
-      ) {
-        throw new DungeonStartError('探索轮次已变化，请刷新后重新选择', 409);
-      }
-      return flow.handleAction(
-        cultivatorId,
-        command.choiceId,
-        command.actionId,
-        { ...options, materialSelections: command.materialSelections },
-      );
-    }
+      return command.mode === 'exorcism'
+        ? flow.startExorcism(cultivatorId, command.mapNodeId)
+        : flow.startDungeon(cultivatorId, command.mapNodeId, options);
+    case 'exorcism-supply':
+      return flow.supplyExorcism(cultivatorId, command.choice);
+    case 'exorcism-retreat':
+      return flow.retreatExorcismRun(cultivatorId, options);
+    case 'mystery-act':
+      return flow.actMystery(cultivatorId, command, options);
+    case 'mystery-deduce':
+      return flow.deduceMystery(cultivatorId, command, options);
+    case 'mystery-talk':
+      return flow.talkMystery(cultivatorId, command, options);
+    case 'mystery-guard':
+      return flow.challengeMysteryGuard(cultivatorId, command, options);
     case 'battle-begin':
       return flow.beginBattle(cultivatorId, command.encounterId, options);
     case 'recover':
       return flow.recoverDungeon(cultivatorId, command.action, options);
     case 'quit':
       return flow.quitDungeon(cultivatorId, options);
-    case 'looting-continue':
-      return flow.continueFromLooting(cultivatorId, options);
-    case 'looting-escape':
-      return flow.escapeFromLooting(cultivatorId, options);
     case 'battle-abandon':
       throw new Error('请在战斗中使用逃跑指令');
     case 'battle-execute': {

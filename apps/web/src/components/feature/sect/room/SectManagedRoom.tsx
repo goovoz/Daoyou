@@ -1,11 +1,9 @@
-import {
-  NpcConversation,
-  RoomView,
-  type RoomActorView,
-} from '@app/components/feature/room';
+import { NpcConversation, RoomView } from '@app/components/feature/room';
 import type { SectRoomDefinition } from '@daoyou/game-rules/sect-organization';
-import { createElement, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { SectNpcConversationRegistry } from './SectNpcConversationRegistry';
+import { SectRoomConversation } from './SectRoomConversation';
+import { getSectRoomPortrait } from './sectRoomPortrait';
 
 export interface SectManagedRoomProps {
   roomKey: string;
@@ -31,19 +29,15 @@ export function SectManagedRoom({
   const setSelectedRoleKey = selection
     ? selection.onChange
     : setInternalRoleKey;
-  const actors = useMemo<RoomActorView[]>(
+  const actors = useMemo(
     () =>
       room?.actors.map((actor) => ({
-        id: actor.id,
-        sigil: actor.sigil,
-        name: actor.name,
-        identity: actor.identity,
-        responsibility: actor.responsibility,
-        appearance: actor.appearance,
+        ...actor,
+        portrait: getSectRoomPortrait(room.key, actor),
       })) ?? [],
     [room],
   );
-  const selectedActor = room?.actors.find(
+  const selectedActor = actors.find(
     (actor) => actor.roleKey === selectedRoleKey,
   );
 
@@ -55,6 +49,7 @@ export function SectManagedRoom({
           name: '当值弟子',
           identity: '当值弟子',
           responsibility: '负责接待来客。',
+          portrait: 'icon:portrait-disciple-m',
         }}
         messages={[
           {
@@ -65,14 +60,6 @@ export function SectManagedRoom({
           },
         ]}
       />
-    );
-
-  const renderer = selectedActor
-    ? registry.get(selectedActor.conversation.renderer)
-    : undefined;
-  if (selectedActor && !renderer)
-    console.error(
-      `未注册宗门 NPC 会话展示器：${selectedActor.conversation.renderer}`,
     );
 
   return (
@@ -93,36 +80,11 @@ export function SectManagedRoom({
       }
       detail={
         selectedActor ? (
-          renderer ? (
-            createElement(renderer, {
-              actor: selectedActor,
-              parameters: selectedActor.conversation.parameters ?? {},
-              onExit: () => setSelectedRoleKey(undefined),
-            })
-          ) : (
-            <NpcConversation
-              actor={selectedActor}
-              messages={[
-                {
-                  id: 'missing-renderer',
-                  speaker: selectedActor.name,
-                  body: '这项事务眼下还无法办理，请稍后再来。',
-                  tone: 'attention',
-                },
-              ]}
-              options={[
-                {
-                  id: 'leave',
-                  label:
-                    selectedActor.appearance === 'facility'
-                      ? '返回房间'
-                      : '弟子告退',
-                  tone: 'muted',
-                },
-              ]}
-              onSelectOption={() => setSelectedRoleKey(undefined)}
-            />
-          )
+          <SectRoomConversation
+            actor={selectedActor}
+            registry={registry}
+            onExit={() => setSelectedRoleKey(undefined)}
+          />
         ) : undefined
       }
     />
