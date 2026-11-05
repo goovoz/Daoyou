@@ -6,7 +6,7 @@ import type { CombatV6SkillCommandOption } from '@daoyou/combat-core/types';
 import { findBeastSkillPresentation } from '@daoyou/game-rules/beasts/presentation';
 import { reasonText } from '@daoyou/game-rules/combat/log';
 import { useState, type ReactNode } from 'react';
-import { skillNeedsTarget } from './presentation';
+import { combatPortraitValue, skillNeedsTarget } from './presentation';
 import type { CombatV6Session } from './session';
 
 export function CombatV6SkillChoice({
@@ -30,6 +30,9 @@ export function CombatV6SkillChoice({
     skills.find((skill) => skill.skillId === selectedId) ??
     skills.find((skill) => skill.ready) ??
     skills[0];
+  const preview = selected
+    ? session.commandOptions?.skillPreviews?.[selected.skillId]
+    : undefined;
   const actor = session.units.find(
     (unit) => unit.id === session.commandOptions?.unitId,
   );
@@ -75,9 +78,11 @@ export function CombatV6SkillChoice({
           {actor ? (
             <span className="cv6-choice-actor">
               <GameIcon
-                value={
-                  session.display?.unitAppearances?.[actor.id]?.icon ?? '👤'
-                }
+                purpose="artwork"
+                value={combatPortraitValue(
+                  actor,
+                  session.display?.unitAppearances?.[actor.id],
+                )}
               />
               {actor.name}
             </span>
@@ -156,6 +161,27 @@ export function CombatV6SkillChoice({
           >
             <h3>{selected.name}</h3>
             <p className="cv6-choice-scope">{scope(selected)}</p>
+            {preview ? (
+              <section
+                className="cv6-choice-current-effect"
+                aria-label="当前法印效果"
+              >
+                <p className="cv6-choice-current-mark">
+                  <strong>当前{preview.currentMark ?? '无印'}</strong>
+                  {preview.reactionName ? ` · ${preview.reactionName}` : null}
+                </p>
+                {preview.effects.length ? (
+                  <p className="cv6-choice-description">
+                    <SkillDescription text={preview.effects.join('\n')} />
+                  </p>
+                ) : null}
+                {preview.nextMark ? (
+                  <p className="cv6-choice-next-mark">
+                    施放成功后留下{preview.nextMark}
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
             <p className="cv6-choice-description">
               <SkillDescription
                 text={

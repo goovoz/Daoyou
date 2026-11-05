@@ -234,9 +234,9 @@ export const gameDockGroups: GameNavGroup[] = [
       },
       {
         id: 'dungeon',
-        sceneLabel: '云游探秘',
+        sceneLabel: '云游',
         href: '/game/dungeon',
-        expandedDockLabel: '🏔️ 云游探秘',
+        expandedDockLabel: '🏔️ 云游',
       },
       {
         id: 'tower',
@@ -351,6 +351,10 @@ export const gameDockGroups: GameNavGroup[] = [
         sceneLabel: '探险札记',
         href: '/game/dungeon/history',
         expandedDockLabel: '🗂️ 探险札记',
+      },
+      {
+        id: 'dungeon-history-detail',
+        sceneLabel: '探险回顾',
       },
     ],
   },

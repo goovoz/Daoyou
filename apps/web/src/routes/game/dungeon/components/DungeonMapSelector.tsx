@@ -1,15 +1,18 @@
 import { InkButton } from '@app/components/ui/InkButton';
-import { InkCard } from '@app/components/ui/InkCard';
 import { InkNotice } from '@app/components/ui/InkNotice';
-import { dungeonReadiness } from '@daoyou/game-rules/dungeon';
-import { MapNodeInfo } from '@daoyou/game-domain/world/map';
+import { cn } from '@app/lib/cn';
 import type { RealmType } from '@daoyou/constants/realms';
+import { QI_ACTION_COSTS } from '@daoyou/game-content/qi/config';
+import { MapNodeInfo } from '@daoyou/game-domain/world/map';
+import { dungeonReadiness } from '@daoyou/game-rules/dungeon';
 import { MapNodeCard } from '../MapNodeCard';
+import { MysteryWaiting } from './MysteryWaiting';
 type NoviceDungeonReadiness = ReturnType<typeof dungeonReadiness>;
 
 interface DungeonMapSelectorProps {
   selectedNode: MapNodeInfo | null;
   onStart: (nodeId: string) => Promise<void>;
+  mode?: 'mystery' | 'exorcism';
   isStarting: boolean;
   readiness: NoviceDungeonReadiness | null;
   realmBlockReason?: string | null;
@@ -17,12 +20,12 @@ interface DungeonMapSelectorProps {
 }
 
 /**
- * 副本地图选择组件
- * 显示地图信息并提供启动按钮
+ * 秘境选择：未选定时引导去地图；选定后介绍此地，并给出开局消耗与开始按钮。
  */
 export function DungeonMapSelector({
   selectedNode,
   onStart,
+  mode = 'mystery',
   isStarting,
   readiness,
   realmBlockReason,
@@ -30,44 +33,76 @@ export function DungeonMapSelector({
 }: DungeonMapSelectorProps) {
   if (!selectedNode) {
     return (
-      <InkCard className="p-8 text-center">
-        <p className="text-ink-secondary">请选择一个秘境</p>
-        <InkButton href="/game/map-v2" variant="primary" className="mt-4">
+      <div className="border-ink/20 space-y-4 border border-dashed px-6 py-10 text-center">
+        <p className="leading-8">
+          还没有选定秘境。
+          <br />
+          在地图上点一处有秘境的地点，就能从这里
+          {mode === 'exorcism' ? '开始除祟' : '出发'}。
+        </p>
+        <InkButton href="/game/map-v2" variant="primary">
           前往地图
         </InkButton>
-      </InkCard>
+      </div>
     );
   }
 
+  const blocked = Boolean(realmBlockReason) || readiness?.shouldBlock;
+
   return (
-    <div className="space-y-4">
-      <MapNodeCard node={selectedNode} playerRealm={playerRealm} />
+    <div className="space-y-5">
+      <MapNodeCard node={selectedNode} playerRealm={playerRealm} mode={mode} />
       {realmBlockReason ? (
         <InkNotice tone="warning">{realmBlockReason}</InkNotice>
-      ) : null}
-      {readiness?.shouldBlock ? (
+      ) : readiness?.shouldBlock ? (
         <InkNotice tone="warning">
-          {readiness.reasons[0] ?? '首次探秘前还需准备。'}
+          {readiness.reasons[0] ?? '出行前还需准备。'}
         </InkNotice>
       ) : null}
-      <div className="flex justify-center gap-4">
-        <InkButton href="/game/map-v2" disabled={isStarting}>
-          重新选择
-        </InkButton>
-        <InkButton
-          variant="primary"
-          onClick={() => onStart(selectedNode.id)}
-          disabled={Boolean(realmBlockReason) || readiness?.shouldBlock}
-          pending={isStarting}
-          pendingLabel="启动中……"
-        >
-          {realmBlockReason
-            ? '境界不足'
-            : readiness?.shouldBlock
-              ? '准备未足'
-              : '开始探索'}
-        </InkButton>
+      <div
+        className={cn(
+          'border-ink/15 flex flex-wrap items-center justify-between gap-3 border-t border-dashed pt-4',
+          // 窄屏页面较长，开始按钮常驻可见，不用先翻到页尾。
+          mode === 'exorcism' &&
+            'max-lg:bg-sheet max-lg:sticky max-lg:bottom-0 max-lg:z-10 max-lg:pb-3',
+        )}
+      >
+        <span className="text-ink-secondary text-sm">
+          {mode === 'exorcism' ? '开局固定消耗灵气' : '开局消耗灵气'}{' '}
+          <span className="text-ink font-mono font-semibold tracking-tight">
+            {mode === 'exorcism'
+              ? QI_ACTION_COSTS.exorcism_start
+              : QI_ACTION_COSTS.dungeon_start}
+          </span>
+        </span>
+        <div className="flex gap-2">
+          <InkButton
+            href="/game/map-v2"
+            variant="secondary"
+            disabled={isStarting}
+          >
+            重新选择
+          </InkButton>
+          <InkButton
+            variant="primary"
+            onClick={() => onStart(selectedNode.id)}
+            disabled={blocked}
+            pending={isStarting}
+            pendingLabel="启动中……"
+          >
+            {realmBlockReason
+              ? '境界不足'
+              : readiness?.shouldBlock
+                ? '准备未足'
+                : mode === 'exorcism'
+                  ? '开始除祟'
+                  : '开始探索'}
+          </InkButton>
+        </div>
       </div>
+      {mode === 'exorcism' ? null : (
+        <MysteryWaiting active={isStarting} kind="start" />
+      )}
     </div>
   );
 }
