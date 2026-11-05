@@ -22,6 +22,8 @@ docker/nginx.conf
 scripts/docker-compose.stack.yml
 scripts/apply-fork-migrations.sh
 scripts/watch-upstream.sh
+scripts/sync-handoff-watch.sh
+scripts/dsh-handoff.py
 scripts/systemd/
 docs/FORK-PATCHES.md
 .github/fork-paths.txt

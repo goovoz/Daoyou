@@ -362,6 +362,51 @@ docker exec -i <pg容器> psql -U <user> -d <db> -c \
   `git fetch upstream`，否则 `git merge upstream/master` 直接报错。
 - **顺延后不要重跑 `drizzle-kit generate`**，它只会又生成一个重复的 0068。
 
+## DSH 交接队列（同步失败 -> 本机接手）
+
+冲突 PR 不再靠人盯着。链路：
+
+```
+101 定时器 daoyou-sync-handoff.timer（每 10 分钟）
+  -> /usr/local/bin/daoyou-sync-handoff-watch.sh   判定「需要人判」，入队
+  -> /var/lib/daoyou-dsh/tasks/<id>.json           queued
+本机 DSH（常驻会话）
+  -> daoyou-dsh-handoff.py claim                   claimed（90 分钟租约）
+  -> 在 101 上复现 merge、解冲突、typecheck
+  -> push --force-with-lease 到 sync/upstream，合 PR
+  -> daoyou-dsh-handoff.py report <id> --status done|failed
+```
+
+判定口径（任一成立即入队；fingerprint = 分支 head sha，同一个 head 只入队一次）：
+
+| 信号 | 含义 |
+| --- | --- |
+| head commit message 含「合并产生冲突」 | CI 冲突提交（workflow 的固定写法） |
+| open PR 标题含「需人工」 | 类型检查没过 / 补丁锚点丢失 |
+| PR `mergeable_state=dirty` | 真冲突 |
+
+哨兵只读 + 入队：不改仓库、不 dispatch、不推分支、不调用任何模型。
+租约过期（DSH 半路挂掉）的任务会被 `list --stale` 列出、可重领，不会永久卡死。
+
+常用命令：
+
+```bash
+ssh root@172.20.0.101 "python3 /usr/local/bin/daoyou-dsh-handoff.py status"
+ssh root@172.20.0.101 "python3 /usr/local/bin/daoyou-dsh-handoff.py list --status queued"
+ssh root@172.20.0.101 "python3 /usr/local/bin/daoyou-dsh-handoff.py claim --kind sync-conflict"
+ssh root@172.20.0.101 "python3 /usr/local/bin/daoyou-dsh-handoff.py report <id> --status done --message '改了什么 / 验证结果' --commit <sha>"
+```
+
+离线自检（不联网、用固定 fixture 验四种判定）：
+
+```bash
+DAOYOU_FAKE_BRANCH_JSON=/tmp/branch.json DAOYOU_FAKE_PR_JSON=/tmp/pr.json \
+  bash scripts/sync-handoff-watch.sh --dry-run
+```
+
+> 仓库开了 `delete_branch_on_merge`，PR 合并后 `sync/upstream` 会被删；
+> 哨兵此时打一行「读不到分支」就退出，下一轮同步会把分支重新建出来。
+
 ## 探测信号（为什么这样设计）
 
 跑在**上游代码**上，四个正交信号：

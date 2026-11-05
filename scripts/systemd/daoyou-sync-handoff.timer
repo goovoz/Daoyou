@@ -1,0 +1,11 @@
+[Unit]
+Description=每 10 分钟检查 Daoyou 同步是否需要人工
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+AccuracySec=30s
+Unit=daoyou-sync-handoff.service
+
+[Install]
+WantedBy=timers.target

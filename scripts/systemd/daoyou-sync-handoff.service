@@ -1,0 +1,12 @@
+[Unit]
+Description=Daoyou 同步交接哨兵（冲突/需人工就入队，交给本机 DSH）
+Documentation=https://github.com/goovoz/Daoyou/blob/master/docs/FORK-PATCHES.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/daoyou-sync-handoff-watch.sh
+# 哨兵自身失败不该影响下一轮
+SuccessExitStatus=0
+TimeoutStartSec=120
