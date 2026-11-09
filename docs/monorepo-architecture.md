@@ -1,8 +1,12 @@
 # Monorepo 架构审查与整理记录
 
+> 现行 AI 调用已统一为原生 `AiService`，旧 `aiClient`、加权路由与 LLM 观测已退役；下文旧入口、配置及测量结果保留为历史记录，当前接入见 [开发说明](development.md#ai-能力)。
+
 > 当前六包拆分与最新验收记录见 [应用边界与迁移决策](architecture-boundaries.md)。下文的三工作区结论属于历史批次，已由该目标替代。
 
 > 后续工具链调整：API 已切换到 Nest CLI 默认 tsc 和 Oxlint，六个公共库独立编译并通过 dist 入口交付，shared 已移除；开发命令使用 Turbo watch。下文的 Rspack／源码包描述保留为切换前审查记录，现行操作见 [本地开发](local-development.md)。
+
+> 现行模型配置：BYOK 已退役，全部模型调用使用服务端模型与凭据；客户端不再配置或附加模型密钥，HTTP/WS 不再解析旧模型头。下文涉及 BYOK 的迁移与运行检查仅保留为历史记录，当前规则见 [AI 能力](development.md#ai-能力)。
 
 审查日期：2026-10-03。目标：NestJS 后端 + React SPA/Vite + pnpm workspace + Turborepo。
 

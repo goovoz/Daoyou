@@ -6,9 +6,16 @@ import { AfdianSponsorshipConfigSchema, type AfdianSponsorshipConfig } from '@da
 import { withSeededSubscriptionPlans } from '@daoyou/game-rules/sponsorship';
 import { DEFAULT_AFDIAN_SPONSORSHIP_CONFIG } from '@daoyou/game-content/sponsorship/defaults';
 import { eq } from 'drizzle-orm';
+import { AiPricingSettingsSchema, type AiPricingSettings } from '@daoyou/contracts/admin/ai-pricing';
+import { Logger } from '@nestjs/common';
 
-export async function getAppSetting(key: string): Promise<string | null> {
-  const q = getExecutor();
+const logger = new Logger('AppSettingsRepository');
+
+export async function getAppSetting(
+  key: string,
+  tx?: DbTransaction,
+): Promise<string | null> {
+  const q = getExecutor(tx);
   const [row] = await q
     .select({ value: appSettings.value })
     .from(appSettings)
@@ -16,6 +23,17 @@ export async function getAppSetting(key: string): Promise<string | null> {
     .limit(1);
   const v = row?.value?.trim();
   return v ? v : null;
+}
+
+/** 未配置时沿用开启状态；每次读取数据库，使多实例无需重启即可暂停。 */
+export async function isDungeonScenarioGenerationEnabled(
+  tx?: DbTransaction,
+): Promise<boolean> {
+  const raw = await getAppSetting(
+    APP_SETTING_KEYS.dungeonScenarioGenerationEnabled,
+    tx,
+  );
+  return raw === null || raw === 'true';
 }
 
 export async function upsertAppSetting(
@@ -95,6 +113,29 @@ export async function getAfdianSponsorshipConfig(): Promise<AfdianSponsorshipCon
   } catch {
     return structuredClone(DEFAULT_AFDIAN_SPONSORSHIP_CONFIG);
   }
+}
+
+export async function getAiPricingSettings(): Promise<AiPricingSettings> {
+  const raw = await getAppSetting(APP_SETTING_KEYS.aiModelPricing);
+  if (!raw) return { models: [] };
+  try {
+    return AiPricingSettingsSchema.parse(JSON.parse(raw));
+  } catch {
+    logger.warn('Invalid ai_model_pricing_v1 settings; using default model price estimates');
+    return { models: [] };
+  }
+}
+
+export async function upsertAiPricingSettings(params: {
+  settings: AiPricingSettings;
+  updatedBy: string;
+}): Promise<void> {
+  const settings = AiPricingSettingsSchema.parse(params.settings);
+  await upsertAppSetting({
+    key: APP_SETTING_KEYS.aiModelPricing,
+    value: JSON.stringify(settings),
+    updatedBy: params.updatedBy,
+  });
 }
 
 export async function upsertAfdianSponsorshipConfig(

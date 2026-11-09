@@ -64,11 +64,22 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
 | --- | --- | --- | --- |
 | 2026-11-06 | `apps/api/src/admin/admin.module.ts` | 上游新增 `AdminDungeonScenariosController/Service`，与 fork 的 `AdminLlmConfig*` 追加在同一位置 | 取并集，两个都留；Nest 的声明顺序无语义 |
 | 2026-11-06 | `apps/api/src/utils/aiClient.ts` | 上游重构 `resolveModel`（签名多一个 `options`、`createLlmDebugFetch` 改三参数、抽出 `baseFetchFor`），与 fork 的「本地接口」前置分支相撞 | import 取并集；本地分支复用上游的 `baseFetch`，保持「长任务不设传输层等待」的语义 |
+| 2026-11-09 | `apps/api/src/admin/admin.module.ts` | 上游换成 `imports: [LlmModule, DatabaseModule, AiUsageModule]`，fork 那行只有 `GmModule` | 取并集 `[LlmModule, AiUsageModule, DatabaseModule, GmModule]`；控制器/服务列表上游未动，原样保留 |
+| 2026-11-09 | `apps/api/src/lib/repositories/app-settings-config.ts` | 上游新增 `aiModelPricing` / `dungeonScenarioGenerationEnabled` 两个键，与 fork 的 `runtimeLlm` 相撞 | 取并集，`runtimeLlm` 连同 L1 注释一起保留 |
+| 2026-11-09 | `apps/api/src/utils/aiClient.ts` | 上游 `c2c7c737`（全面迁移原生 `AiService`）**删掉了整个文件**，fork 侧还带本地接口分支 | 接受删除（该文件 fork 独有的只有那段分支）；把 fork 分支重锚到 `apps/api/src/llm/llm.module.ts` 的模型注册处，见下 |
 
 > `aiClient.ts` 的 `resolveModel` 是这套机制里最脆的一处：上游每重构一次模型解析，
 > 这里都要重判一次。解冲突时**先看上游这次把 fetch / timeout 逻辑挪到了哪一层**，
 > 再决定 fork 分支复用哪个封装；只把 import 并起来会编译通过，但长任务会悄悄退回
 > 300 秒响应头超时。
+>
+> **2026-11-09 起这条经验换了位置。** 上游把 `aiClient.ts` 整个删了，模型解析收敛成
+> `apps/api/src/llm/llm.module.ts` 里 `AiModule.forRootAsync` 的定值表（`alibaba.fast` /
+> `deepseek.fast` / `*.advanced`），没有任何 per-request 解析点。fork 的「本地 OpenAI 兼容接口」
+> 改成 `createRuntimeLlmGate()` 包住每个别名：`runtime-provider.ts` 里那层转发模型每次真正调用时
+> 重读运行时配置 —— 后台启用就整站走本地，未启用一个字节都不变地走云端。
+> 下次上游再动这块，冲突点在 `llm.module.ts` 的 `registerModel(...)` 那几行，判据是
+> 「别名注册有没有被换成别的机制」，而不是 fetch / timeout 那一层。
 
 ### L2 —— 禁止改动
 

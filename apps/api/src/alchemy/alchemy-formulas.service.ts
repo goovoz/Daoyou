@@ -1,14 +1,15 @@
-import { Injectable } from '@nestjs/common';
-import {
-  assertAlchemyMaterialVersions,
-  readAlchemyMaterials,
-} from '@server/alchemy/application/inventory/AlchemyInventory.js';
+import { AiModels, AiService } from '@nestjs/ai';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   analyzeFormulaMaterials,
   confirmDiscoveryCandidate,
   deleteCultivatorFormula,
   listCultivatorFormulasPage,
 } from '@server/alchemy/application/AlchemyFormulaService.js';
+import { readAlchemyMaterials } from '@server/alchemy/application/inventory/AlchemyInventory.js';
+import type { ActiveCultivatorRef } from '@server/lib/auth/types.js';
+import { getRuntimeEnvironment } from '@server/lib/config/environment.js';
+import { toPlayerStateMutationResponse } from '@server/player/application/state/ResourceMutationResponse.js';
 import type { z } from 'zod';
 import type {
   DiscoveryConfirmSchema,
@@ -18,6 +19,10 @@ import type {
 
 @Injectable()
 export class AlchemyFormulasService {
+  constructor(
+    @Inject(AiService) private readonly ai: AiService,
+    @Inject(AiModels) private readonly models: AiModels,
+  ) {}
   async materials(owner: string) {
     return { success: true, data: await readAlchemyMaterials(owner) };
   }
@@ -36,24 +41,25 @@ export class AlchemyFormulasService {
   }
 
   async analyze(
-    owner: string,
+    actor: ActiveCultivatorRef,
     formulaId: string,
     input: z.infer<typeof FormulaAnalyzeSchema>,
   ) {
-    await assertAlchemyMaterialVersions(
-      owner,
-      input.materialIds,
-      input.materialVersions,
-    );
-    return {
-      success: true,
-      data: await analyzeFormulaMaterials(
-        owner,
+    const model = this.models.get('alibaba.fast');
+    const modelKey = JSON.stringify([
+      typeof model === 'string' ? model : model.provider,
+      typeof model === 'string' ? model : model.modelId,
+      getRuntimeEnvironment().ALIBABA_BASE_URL ?? '',
+    ]);
+    return toPlayerStateMutationResponse(
+      await analyzeFormulaMaterials(
+        this.ai,
+        { userId: actor.userId, cultivatorId: actor.cultivatorId },
         formulaId,
-        input.materialIds,
-        input.materialQuantities,
+        input,
+        modelKey,
       ),
-    };
+    );
   }
 
   async confirm(owner: string, input: z.infer<typeof DiscoveryConfirmSchema>) {
