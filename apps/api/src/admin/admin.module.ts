@@ -1,5 +1,7 @@
+import { LlmModule } from '@server/llm/llm.module.js';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '@server/database/database.module.js';
+import { AiUsageModule } from '@server/llm/ai-usage.module.js';
 import { AccountsController } from './accounts.controller.js';
 import { AccountsService } from './accounts.service.js';
 import { AdminController } from './admin.controller.js';
@@ -31,7 +33,7 @@ import { AdminLlmConfigController } from './llm-config.controller.js';
 import { AdminLlmConfigService } from './llm-config.service.js';
 
 @Module({
-  imports: [DatabaseModule, GmModule],
+  imports: [LlmModule, AiUsageModule, DatabaseModule, GmModule],
   controllers: [
     AdminSystemMailsController,
     AdminItemLibraryController,

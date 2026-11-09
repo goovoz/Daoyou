@@ -26,7 +26,7 @@
 
 奖励通过角色 mutation 锁、角色行锁及现有背包占用检查后发放。符箓入包、发奖标记、资源版本与事件在同一事务内提交，提交后广播。背包满时沿用库存溢出到储藏室的能力。战斗占用等情况会保留签文，待限制解除后只重试领取。
 
-AI使用 `streamAiText`、`daily-divination` 提示词与现有BYOK校验。30秒超时、空文本、截断、超长文本或客户端断线时使用预设解读，随后尝试结算；页面收到最终签文时替换不完整片段。进程中断或数据库异常则保留原签，重新进入可继续。服务端发奖不依赖前端是否收到最后一个SSE事件。
+AI使用 `streamAiText`、`daily-divination` 提示词与服务端模型路由和凭据。30秒超时、空文本、截断、超长文本或客户端断线时使用预设解读，随后尝试结算；页面收到最终签文时替换不完整片段。进程中断或数据库异常则保留原签，重新进入可继续。服务端发奖不依赖前端是否收到最后一个SSE事件。
 
 ## 画面与交互
 
@@ -90,6 +90,12 @@ React负责案台内的方向选择与可访问点击层、结果文字和SSE状
 组件随角色 ID 重新挂载；页面返回、窗口聚焦、标签页重新可见、北京时间换日时重新读取，不缓存每日状态。占卜 HTTP/SSE 客户端移至 `apps/web/src/lib/divinationApi.ts` 供首页与占卜页复用。删除首页不再使用的 DivineFortune 组件与 useDivineFortune hook。
 
 浏览器实测已有「双鹭临汀」回显与查看解签跳转；用本地 dev 接口重置后验证「今日尚未占卜」及去占卜跳转，保留已领取符箓。390×844 手机布局可读，无横向溢出。`bun run lint`、`bun run build`、`git diff --check`通过；未新增前后端单元测试，真实跨午夜与角色切换只完成代码审查。
+
+## 旧今日天机退役（2026-11-09）
+
+首页与占卜页均通过 `apps/web/src/lib/divinationApi.ts` 读取角色每日占卜，仓库及官网项目已无 `/api/divine-fortune` 调用。移除旧公开接口的 Controller、Service、Redis 缓存读写、`divine-fortune` 提示词及注册、专属 Schema/类型、随机兜底内容与包导出。现有每日占卜及 `daily-divination` 提示词继续使用；旧缓存 `divine_fortune_data` 原有 TTL 为24小时，停止续写后自然过期，无需数据迁移。NestJS 迁移文档中的该接口验收仅为历史记录。
+
+验证：`pnpm run lint`、`pnpm run typecheck`、`pnpm run build`、`pnpm run test packages/game-rules/src/divination/rules.test.ts`（11项）通过。使用本地配置在临时3002端口启动构建产物，并设置 `BACKGROUND_LLM_JOBS=off`；旧接口GET返回404，现有每日占卜GET未登录返回401，求签及解签路由仍注册。未发起模型调用、未做完整浏览器求签流程或全量单元测试；临时实例验收后关闭。
 
 ## 移除外键（2026-09-19）
 

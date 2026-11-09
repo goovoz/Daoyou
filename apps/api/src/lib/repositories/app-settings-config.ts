@@ -4,6 +4,8 @@ export const APP_SETTING_KEYS = {
   authPageAnnouncement: 'auth_page_announcement',
   itemLibraryDailyMaterialGeneration: 'item_library_daily_material_generation',
   afdianSponsorship: 'sponsorship_afdian_config_v1',
+  aiModelPricing: 'ai_model_pricing_v1',
+  dungeonScenarioGenerationEnabled: 'dungeon_scenario_generation_enabled',
   // [daoyou-fork L1] fork-patch: local-llm
   runtimeLlm: 'runtime_llm_config_v1',
 } as const;

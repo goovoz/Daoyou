@@ -133,39 +133,77 @@ ALTCHA 不需要前端 site key。认证 CAPTCHA 启用时 Redis 也是强依赖
 
 ### AI 能力
 
-AI 相关功能支持 DeepSeek 与阿里云百炼（Qwen），统一通过 `aiClient.ts` 调用。服务端通过 `LLM_PROVIDER` 配置基础模型组：
+AI 相关功能统一通过原生 `@nestjs/ai` 的 `AiService` 调用，全部使用服务端配置的模型与凭据。业务服务直接注入，普通应用函数显式接收依赖；不使用全局 service locator 或生成兼容门面。旧 `aiClient.ts`、加权路由、`LLM_PROVIDER`、`LLM_ADVANCED_PROVIDER`、`LLM_DEBUG` 和 LLM 观测页/API 已退役。
 
-`LLM_PROVIDER=<provider>[/<model>][:<weight>][,...]`
+供应商凭据：`ALIBABA_API_KEY`、可选 `ALIBABA_BASE_URL`（默认北京 `https://dashscope.aliyuncs.com/compatible-mode/v1`）、`DEEPSEEK_API_KEY`。环境中遗留的旧路由变量不再生效，应从部署配置移除。
 
-| 需求 | 配置 |
-| --- | --- |
-| 单供应商单模型 | `alibaba` 或 `alibaba/qwen3.7-flash` |
-| 单供应商多模型 | `alibaba/qwen3.7-flash:70,alibaba/qwen-plus:30` |
-| 多供应商单模型 | `alibaba/qwen3.7-flash:70,deepseek/deepseek-v4-flash:30` |
-| 多供应商多模型 | `alibaba/qwen3.7-flash:50,alibaba/qwen-plus:20,deepseek/deepseek-v4-flash:30` |
+#### @nestjs/ai 命名模型
 
-规则：
+`apps/api/src/llm/llm.module.ts` 通过原生 `AiModule.forRootAsync()` 注册并导出模型。业务必须显式指定模型别名，没有 `default` 别名。每家供应商可以注册多个别名，模型配置可以继续在该模块中扩展：
 
-- 省略 `/model` 时用该供应商默认模型（`qwen3.7-flash` / `deepseek-v4-flash`）
-- 省略 `:weight` 时该条权重为 `1`（等权）
-- 多于一条路由时按用户 ID 做稳定哈希分流。同一组配置下，同一用户命中同一条 `provider + model`
-- 无用户上下文（如 cron）时落到当前权重最高的路由
-- 列出的每个供应商都必须配置对应 API Key
-- 未设置 `LLM_PROVIDER` 时自动回退：有 `ALIBABA_API_KEY` 用 `alibaba`，否则有 `DEEPSEEK_API_KEY` 用 `deepseek`
-- 玩家 BYOK 仍优先生效，不走服务端分流
+| 模型别名 | 模型 ID 配置 | 未配置时 |
+| --- | --- | --- |
+| `alibaba.fast` | `ALIBABA_FAST_MODEL` | 使用 `LLM_PROVIDER_DEFAULT_MODELS.alibaba` |
+| `alibaba.advanced` | `ALIBABA_ADVANCED_MODEL` | 不注册该别名 |
+| `deepseek.fast` | `DEEPSEEK_FAST_MODEL` | 使用 `LLM_PROVIDER_DEFAULT_MODELS.deepseek` |
+| `deepseek.advanced` | `DEEPSEEK_ADVANCED_MODEL` | 不注册该别名 |
 
-高级模型组 `LLM_ADVANCED_PROVIDER` 使用相同的路由格式和分流规则。高级场景由 [`llmTierForScene`](../apps/api/src/lib/llm/tiers.ts) 决定。
+`LLM_PROVIDER_FACTORIES` 只负责供应商客户端、端点和凭据，模型设置集中在 `LlmModule`。别名由业务代码显式选择，不存在权重分流、用户哈希选路或高级模型自动降级。普通场景使用 `alibaba.fast`；云游剧本的大纲、正文和审校使用 `alibaba.advanced`，执行这些任务前必须配置 `ALIBABA_ADVANCED_MODEL`。切换供应商或档位时修改该业务调用的 `model` 别名。
 
-- 未设置或为空时，高级场景使用基础组
-- 服务端只在高级场景选用高级组时解析该组。高级组配置有误只影响使用该组的调用
+共享原生 `BulkheadPolicy` 限制最多 64 个并发模型步骤，不排队；各模型组合原生 `RetryPolicy` 和 `TimeoutPolicy`。只有供应商标记可重试的请求错误及尝试超时会重试，最多 3 次；使用指数退避并遵守供应商 Retry-After（超过 30 秒不再重试），不对格式错误重试。快速别名每次尝试上限 120 秒，高级别名 15 分钟。命名模型已配置组合 `resilience`，调用级普通 `timeout/retry` 不再参与策略组装；需要更短的业务总限时，使用 `abortSignal`。`llm/call-options.ts` 的 `aiDeadlineSignal` 只合并原生取消信号与整次调用期限，不包装生成；各业务沿用更短期限，同一业务重试复用总期限。流式消费在 `finally` 调用原生 `abort()`。
 
-其它变量：
+默认通过 `providerOptions` 关闭思考；剧本大纲和审校显式开启，Alibaba 思考预算为 4096。长耗时请求使用 provider 层的 `undici` fetch，避免 Node 默认 300 秒响应头等待提前结束，实际期限由取消信号与原生策略负责。
 
-- `ALIBABA_API_KEY`：阿里云百炼 API Key
-- `ALIBABA_BASE_URL`：可选，默认国内北京 `https://dashscope.aliyuncs.com/compatible-mode/v1`
-- `DEEPSEEK_API_KEY`：DeepSeek API Key
+结构化输出直接使用 `generateObject`；材料和灵种使用 `{ elements: [...] }` schema 后读取数组。严格业务校验、确定性保底及剧本自身审校/有限重试保留；旧通用的格式纠错提示与截断后扩增输出上限已删除。模型成功但业务校验不通过的步骤仍可能被采集为已完成用量。
 
-玩家也可以在游戏设置中保存自己的供应商、API Key 与模型。BYOK 配置只保存在当前浏览器；请求携带的 provider 必须是服务端白名单枚举，baseURL 不能由客户端指定。配置不完整或格式无效时服务端返回 400，不会静默消耗服务器额度。
+用户自备模型凭据（BYOK）已退役：游戏设置不再提供供应商、模型或 Key 配置，客户端不再添加 `x-llm-*` 请求头，HTTP/WS 入口不再解析或应用这些旧头，CORS 也不再放行它们。浏览器启动时删除旧 `daoyou_llm_config` 存储项。服务端供应商、API Key、baseURL 与前端部署使用的 `VITE_API_BASE_URL` 配置继续保留；客户端输入不能改变上游模型端点或凭据。
+
+#### AI 用量与费用
+
+`LlmModule` 的全局 `onUsage` 将原生 `AiService` 事件交给 `AiUsageService`，存入 `wanjiedaoyou_ai_usage_events`。新场景通过该模块注入 `AiService`，并设置稳定的 `label` 即可按场景采集，不需要业务调用包裹；缺失或空白标签归入 `unlabeled`。后台页 `/admin/ai-usage` 按场景查看所有原生服务端模型用量。已有 `credential_source` 历史列及 `byok` 枚举约束和数据保留，新采集与后台查询仅使用 `server`；不修改原迁移，也不清理历史记录。
+
+统计单位是**已采集的模型完成步骤**，不是业务请求数：一次 Agent 调用可以包含多个步骤。原生 `onUsage` 不提供完整的失败事件；失败、取消、流中断和结构化输出校验失败可能已有消耗却没有用量记录，因此本页不能用于计算业务失败率，也不能作为供应商真实账单。供应商未提供的 token 分项会被原生库归为 `0`，无法与真实的零用量区分。事件不保存提示词、生成正文或 API Key。旧观测的提示词/Schema 字符数、失败率和错误分类不再采集；旧 Redis `admin:llm-metrics:events:v1` 没有 TTL，部署后可单独清理该 key，不迁入费用表，也不删除共享 Redis 配置。
+
+价格规则保存在 `wanjiedaoyou_app_settings` 的 `ai_model_pricing_v1` JSON 配置中，可在 `/admin/ai-usage` 的“模型价格”中添加、修改和删除，无需数据库迁移。规则按原生事件的精确 `provider + modelId` 匹配，例如 `alibaba.chat` 与 `qwen3.7-flash`，不是 `alibaba.fast` 这样的调用别名。同一个组合只允许一条规则；同一个实际模型用于多个别名时共用该价格。
+
+所有单价单位均为**每百万 tokens**。未配置或未命中规则时使用人民币默认估算：输入 `CNY 1 / M`、输出 `CNY 2 / M`；缓存输入未单独填写时按普通输入价计算，显式填写 `0` 则保留零价。默认价只用于运营估算，不代表供应商报价。原生定价使用每模型固定单价，不按输入长度自动切换阶梯价；配置价格时应自行确认适用范围。
+
+配置格式示例（单价仅演示格式）：
+
+```json
+{
+  "models": [
+    {
+      "provider": "alibaba.chat",
+      "modelId": "qwen3.7-flash",
+      "currency": "CNY",
+      "input": 1,
+      "output": 2,
+      "cachedInput": 0.2
+    }
+  ]
+}
+```
+
+保存配置后需**重启 API 实例**生效；多实例部署需全部重启。`LlmModule` 启动时读取并校验配置，通过 `llm/model-pricing.ts` 配置原生 `AiModelDefinition.pricing`，`onUsage` 继续保存原生事件已计算的 `cost`，不另造计价公式。费用与价格快照来自同一次启动读取的配置，记录使用配置价还是默认估算价；运行中的实例不会因后台保存而换价。历史费用和快照不重算，历史未计价记录继续保留 `null`；费用按币种分别汇总。旧代码中限定模型和网关的报价规则已移除，不会自动沿用，需在后台显式配置。
+
+#### 炼丹推演收费与模型输入优化
+
+依方炼丹的灵气消耗提前到“推演药路”。两种炼丹模式的费用预览、依方推演预扣费和随心炼制扣费统一使用 `calculateAlchemyQiCost`：`max(1, ceil(N / 6 + sqrt(E / 800)))`，其中 N 为投入材料总份数，E 为按品阶和材料类型折算、四舍五入后的原始药蕴；两项相加后统一向上取整，不再封顶 20 点。六格玄品灵草各 30 份（N=180、E=7200）消耗 33 点，六格神品天材地宝各 30 份（E=2340000）消耗 85 点。`POST /api/alchemy/formulas/:formulaId/analyze` 必须携带 UUID `requestId` 及原有材料、份数、版本字段；先校验并预扣灵气，再调用模型，技术失败退还，静态无效分析不收费。成功返回标准资源 mutation 的 `success/data/state`，`data.qiCostPaid` 是实际预扣额；新预览开炉只扣灵石和材料，不再扣灵气。旧预览没有 `qiCostPaid` 时，开炉仍按当前共享公式扣灵气；随心炼制的收费时点不变。
+
+未消费且仍匹配完整丹方内容、熟练度、材料语义/份数/版本的分析可在原有 10 分钟有效期内复用。同一 `requestId` 重放或新 `requestId` 请求相同输入都返回原 `analysisId`，不再次调用模型、扣费或续期；Redis 指针缺失可从 PostgreSQL 的有效记录恢复。预扣、分析结果和消费凭据分别使用现有 `playerMutationRequests` 的 `alchemy_formula_analysis_reserve`、`alchemy_formula_analysis`、`alchemy_formula_analysis_consumed` source，无需迁移。消费、过期或相关输入变化后须重新推演，旧凭据不能跨请求再次开炉；同一开炉 `requestId` 仍可幂等重放。
+
+前端再次查看当前有效结果直接进入预览，不受推演冷却阻止。推演响应先应用资源状态；网络结果不确定时保留原请求 ID，只有成功结果或明确的 `analysisFinal: true` 失败终态才结束该次重试。这样既可重试退款后的失败，也不会因网络重试重复预扣。
+
+模型端将逐味药性向量与配伍判断合并为一组输出，服务端还原原业务结构，保留完整覆盖、引用唯一、跨字段及药性规则校验。灵田阶段判断仍使用 AI，保留全部生态信息和必要阶段历史，仅精简提示词及重复字段；同进程相同输入合并在途判断，单个订阅者取消不影响其他等待者，全部取消时中止共享请求，完成后不保留长期结果缓存。静态字符测算中，炼丹 system 为 1468 字符、紧凑 Schema 为 1227 字符，灵田提示词约 795 字符；这些不是实际 token 数或节省费用的保证。炼丹优化应以每次成功业务预览的模型消耗衡量，不能只比较每条原生 usage 的平均值。
+
+固定 system/Schema 和稳定 JSON 顺序继续作为共同前缀，动态材料后置；不为达到供应商缓存阈值填充提示词。供应商隐式缓存与业务结果复用是两层机制，前者命中受公共前缀、模型和服务端调度影响，不能保证命中率，见[阿里云上下文缓存说明](https://help.aliyun.com/zh/model-studio/context-cache)。业务复用不发模型请求，也不伪造零费用 usage 记录。
+
+2026-11-09 本地验收：首次推演灵气 `333 → 332`，有效复看为零请求、零扣费；同输入请求及 Redis 指针缺失恢复均复用原 ID。两味材料各 4 份的新推演再扣 1 点至 `331`，开炉扣 3680 灵石、材料各 4 份并产出 3 枚丹药，灵气保持 `331`；原开炉请求重放返回 200 且不再收费，异请求使用旧凭据返回 409。灵气为 0 时发起新推演返回 409、`required: 1`，未调用模型；临时灵气准备已返还，恢复至 `331`。这些是本地验证记录，不代表已部署生产。
+
+补充验收：以仅本地进程的临时无效模型配置验证真实提供方错误，推演返回 503、`analysisFinal/qiRefunded = true`，余额 `331 → 331`，同请求重放仍为退款终态；配置随后恢复。灵田同一阶段/方法的两条并发请求返回 200/429，仅新增 1 个模型完成步骤、1 条阶段历史，灵气 `331 → 326`；重放原请求返回 200，复用 requestId 更换方法返回 409，无额外消耗。背包临时腾挪已恢复，两味临时补充材料也已在验收炼制中用完；产出的丹药留在本地测试角色储藏室。
+
+2026-11-09 新计费公式本地验收：`local1` 随心炼制投入已有凡品灵草 7 份，预览 2 点灵气，完整客户端载荷开炉成功，余额 `326 → 324`，消耗 1840 灵石并产出 2 枚丹药；请求重放返回 `state.replayed=true`。依方投入玉髓参 2 份、金雷竹心 1 份，预览与推演实际预扣均为 2 点，余额 `324 → 322`，该配伍预测产量为 0，未开炉；随后冰魄玉髓芝、风吟七星草各 1 份的预览与推演也均为 2 点，余额 `322 → 320`，开炉产出 1 枚地品丹药、消耗 29440 灵石，灵气保持 320，重放未重复扣费。只读数据库及后续 `currency` 资源读取均确认最终灵气 320、灵石 277442；数量 31 返回 400，失效材料版本返回 409且无扣费。页面另验证六格混合灵草各 1 份显示 2 点灵气，未提交。未准备临时物资，保留正常炼制产物与记录；本轮未重新实测灵气不足及技术失败退款场景。
 
 ## 数据库初始化
 

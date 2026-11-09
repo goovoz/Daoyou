@@ -1,4 +1,28 @@
 import {
+  IDENTITY_RESHAPE_DESCRIPTION_MAX_LENGTH,
+  IDENTITY_RESHAPE_DESCRIPTION_MIN_LENGTH,
+  IDENTITY_RESHAPE_QUESTION_COUNT,
+  IDENTITY_RESHAPE_SCENARIO,
+  IDENTITY_RESHAPE_SESSION_TTL_SECONDS,
+  IDENTITY_RESHAPE_TALISMAN_NAME,
+} from '@daoyou/game-content/identity-reshape';
+import {
+  IdentityReshapeCandidateSchema,
+  type IdentityReshapeAnswer,
+  type IdentityReshapeNameCheck,
+  type IdentityReshapeSessionDTO,
+  type IdentityReshapeSessionStore,
+} from '@daoyou/game-domain/identity-reshape';
+import {
+  describeIdentityReshapeAnswers,
+  getIdentityReshapeQuestions,
+  selectIdentityReshapeQuestions,
+  validateIdentityReshapeAnswers,
+} from '@daoyou/game-rules/identity-reshape';
+import type { AiService } from '@nestjs/ai';
+import { consumeConsumableById } from '@server/cultivator/application/readers/CultivatorInventoryRepository.js';
+import { findBagTalisman } from '@server/inventory/application/BagConsumables.js';
+import {
   getExecutor,
   type DbExecutor,
   type DbTransaction,
@@ -8,21 +32,10 @@ import { renderPrompt } from '@server/lib/prompts/index.js';
 import { redis } from '@server/lib/redis/index.js';
 import { parseRedisJson } from '@server/lib/redis/json.js';
 import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock.js';
-import { generateAiObject } from '@server/utils/aiClient.js';
-import { normalizeFreeformLlmInput } from '@server/utils/llmPayload.js';
-import { IDENTITY_RESHAPE_DESCRIPTION_MAX_LENGTH, IDENTITY_RESHAPE_DESCRIPTION_MIN_LENGTH, IDENTITY_RESHAPE_QUESTION_COUNT, IDENTITY_RESHAPE_SCENARIO, IDENTITY_RESHAPE_SESSION_TTL_SECONDS, IDENTITY_RESHAPE_TALISMAN_NAME } from '@daoyou/game-content/identity-reshape';
-import { describeIdentityReshapeAnswers, getIdentityReshapeQuestions, selectIdentityReshapeQuestions, validateIdentityReshapeAnswers } from '@daoyou/game-rules/identity-reshape';
-import {
-  IdentityReshapeCandidateSchema,
-  type IdentityReshapeAnswer,
-  type IdentityReshapeNameCheck,
-  type IdentityReshapeSessionDTO,
-  type IdentityReshapeSessionStore,
-} from '@daoyou/game-domain/identity-reshape';
-import { and, eq, sql } from 'drizzle-orm';
-import { findBagTalisman } from '@server/inventory/application/BagConsumables.js';
+import { aiDeadlineSignal } from '@server/llm/call-options.js';
 import { playerCommandExecutor } from '@server/player/application/state/CommandExecutors.js';
-import { consumeConsumableById } from '@server/cultivator/application/readers/CultivatorInventoryRepository.js';
+import { normalizeFreeformLlmInput } from '@server/utils/llmPayload.js';
+import { and, eq, sql } from 'drizzle-orm';
 
 function sessionKey(cultivatorId: string) {
   return `identity-reshape-session:${cultivatorId}`;
@@ -260,11 +273,14 @@ async function checkActiveName(
   }
 }
 
-export function generateIdentityReshape(args: {
-  cultivatorId: string;
-  answers: IdentityReshapeAnswer[];
-  description: string;
-}) {
+export function generateIdentityReshape(
+  ai: AiService,
+  args: {
+    cultivatorId: string;
+    answers: IdentityReshapeAnswer[];
+    description: string;
+  },
+) {
   return withRedisLock(
     {
       key: redisLockKeys.cultivatorMutation(args.cultivatorId),
@@ -291,11 +307,6 @@ export function generateIdentityReshape(args: {
 
       const cultivator = await getExecutor().query.cultivators.findFirst({
         columns: {
-          name: true,
-          origin: true,
-          personality: true,
-          background: true,
-          gender: true,
           playerRace: true,
           age: true,
           realm: true,
@@ -310,31 +321,24 @@ export function generateIdentityReshape(args: {
 
       const rendered = renderPrompt('identity-reshape', {
         answerContext: describeIdentityReshapeAnswers(args.answers),
-        originalCharacterContext: JSON.stringify({
-          originalNarrative: {
-            name: cultivator.name,
-            origin: cultivator.origin,
-            personality: cultivator.personality,
-            background: cultivator.background,
-          },
-          immutableFacts: {
-            gender: cultivator.gender,
-            playerRace: cultivator.playerRace,
-            age: cultivator.age,
-            realm: cultivator.realm,
-            realmStage: cultivator.realm_stage,
-          },
+        immutableCharacterFacts: JSON.stringify({
+          playerRace: cultivator.playerRace,
+          age: cultivator.age,
+          realm: cultivator.realm,
+          realmStage: cultivator.realm_stage,
         }),
         description,
       });
-      const response = await generateAiObject({
-        system: rendered.system,
+      const response = await ai.generateObject({
+        model: 'alibaba.fast',
+        abortSignal: aiDeadlineSignal(),
+        instructions: rendered.system,
         prompt: rendered.user,
         schema: IdentityReshapeCandidateSchema,
-        name: '改天换地后的角色文案',
-        sceneId: 'identity-reshape',
+        schemaName: '改天换地后的角色文案',
+        label: 'identity-reshape',
       });
-      const candidate = response.output;
+      const candidate = response.object;
       const nameCheck = await checkActiveName(candidate.name);
       const next: IdentityReshapeSessionStore = {
         ...session,
@@ -365,7 +369,7 @@ export function confirmIdentityReshape(args: {
       if (!session.candidate) {
         throw new IdentityReshapeServiceError(400, '尚未生成可确认的新身份');
       }
-      const candidate = session.candidate;
+      const candidate = IdentityReshapeCandidateSchema.parse(session.candidate);
       lease.assertHeld();
       const committed = await playerCommandExecutor.execute({
         coordination: { mode: 'redis', lease },
