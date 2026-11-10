@@ -167,6 +167,9 @@ export async function withRedisLock<T>(
       acquired.push({ key, lock });
     }
 
+    // 取锁本身可能耗掉若干个 retry 周期，租约起点要按「全部拿到」重新算，
+    // 否则多 key / 有重试时会在任务开头就被本地的过期判定误杀成 REDIS_LEASE_LOST。
+    expiresAt = Date.now() + timeoutMs;
     scheduleRenewal();
 
     const lease: RedisLeaseContext = {

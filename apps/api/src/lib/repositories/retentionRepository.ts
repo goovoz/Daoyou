@@ -1,6 +1,7 @@
 import type { DbExecutor, DbTransaction } from '@server/lib/drizzle/db.js';
 import { getExecutor } from '@server/lib/drizzle/db.js';
 import {
+  aiUsageEvents,
   auctionBuyOrders,
   auctionListings,
   dungeonHistories,
@@ -14,6 +15,7 @@ import {
 import { and, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 
 export type ExpiredDataCleanupCutoffs = {
+  aiUsageEvents: Date;
   mails: Date;
   qiLogs: Date;
   dungeonHistories: Date;
@@ -26,6 +28,7 @@ export type ExpiredDataCleanupCutoffs = {
 };
 
 export type ExpiredDataCleanupResult = {
+  aiUsageEvents: number;
   mails: number;
   qiLogs: number;
   dungeonHistories: number;
@@ -143,7 +146,16 @@ export async function pruneExpiredData(
       .returning({ id: auctionBuyOrders.id }),
   );
 
+  // 每条 LLM 调用一行，是全库增长最快的一张表；不设保留期几个月就能到千万级。
+  const aiUsageEventsDeleted = await deleteExpiredRows(q, (executor) =>
+    executor
+      .delete(aiUsageEvents)
+      .where(lt(aiUsageEvents.recordedAt, cutoffs.aiUsageEvents))
+      .returning({ id: aiUsageEvents.id }),
+  );
+
   return {
+    aiUsageEvents: aiUsageEventsDeleted,
     mails: mailsDeleted,
     qiLogs: qiLogsDeleted,
     dungeonHistories: dungeonHistoriesDeleted,
