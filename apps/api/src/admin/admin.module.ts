@@ -31,6 +31,8 @@ import { GmModule } from './gm/gm.module.js';
 // [daoyou-fork L1] fork-patch: local-llm —— 本地模型配置
 import { AdminLlmConfigController } from './llm-config.controller.js';
 import { AdminLlmConfigService } from './llm-config.service.js';
+import { AdminWorldChatController } from './world-chat.controller.js';
+import { AdminWorldChatService } from './world-chat.service.js';
 
 @Module({
   imports: [LlmModule, AiUsageModule, DatabaseModule, GmModule],
@@ -47,6 +49,7 @@ import { AdminLlmConfigService } from './llm-config.service.js';
     AdminTowerController,
     AdminLlmConfigController,
     AdminDungeonScenariosController,
+    AdminWorldChatController,
   ],
   providers: [
     AdminSystemMailsService,
@@ -63,6 +66,7 @@ import { AdminLlmConfigService } from './llm-config.service.js';
     AdminTowerService,
     AdminLlmConfigService,
     AdminDungeonScenariosService,
+    AdminWorldChatService,
   ],
 })
 export class AdminModule {}
