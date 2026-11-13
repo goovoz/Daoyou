@@ -47,6 +47,8 @@ const MATERIAL_LIBRARY_DAILY_GENERATION_LOCK_TTL_SECONDS = 2 * 60 * 60;
 const SETTLED_TTL_SECONDS = 7 * 24 * 60 * 60;
 const RESOURCE_REPLAY_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
 const MAIL_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+// 用量明细只用于最近几个月的成本复盘；90 天后归档在聚合视图里，明细不必留。
+const AI_USAGE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const QI_LOG_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const DUNGEON_HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DUNGEON_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -408,6 +410,7 @@ export async function runExpiredDataCleanupJob(): Promise<
     const deleted = await db.transaction(async (tx) => ({
       ...(await pruneExpiredData(
         {
+          aiUsageEvents: new Date(now - AI_USAGE_RETENTION_MS),
           mails: new Date(now - MAIL_RETENTION_MS),
           qiLogs: new Date(now - QI_LOG_RETENTION_MS),
           dungeonHistories: new Date(now - DUNGEON_HISTORY_RETENTION_MS),

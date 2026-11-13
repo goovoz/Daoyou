@@ -228,13 +228,21 @@ export class TransferService {
       where: eq(schema.transferImportRequests.userId, userId),
       orderBy: [desc(schema.transferImportRequests.createdAt)],
     });
-    return Promise.all(rows.map(async (row) => ({
-      id: row.id, status: row.status, challenge: row.challenge, preview: row.preview,
-      expiresAt: row.expiresAt, reviewNote: row.reviewNote,
-      receipt: row.status === 'imported' || row.status === 'rejected'
-        ? await this.crypto.signReceipt({ requestId: row.id, packageHash: row.packageHash!, status: row.status })
-        : null,
-    })));
+    return Promise.all(rows.map(async (row) => {
+      const settledStatus =
+        row.status === 'imported' || row.status === 'rejected'
+          ? row.status
+          : null;
+      return {
+        id: row.id, status: row.status, challenge: row.challenge, preview: row.preview,
+        expiresAt: row.expiresAt, reviewNote: row.reviewNote,
+        // package_hash 在库里是可空的（issued 行还没有存档），别用非空断言糊过去：
+        // 缺哈希的行宁可不出回执，也不能签一个下游验不过的回执。
+        receipt: settledStatus && row.packageHash
+          ? await this.crypto.signReceipt({ requestId: row.id, packageHash: row.packageHash, status: settledStatus })
+          : null,
+      };
+    }));
   }
 
   async cancel(userId: string, requestId: string) {
