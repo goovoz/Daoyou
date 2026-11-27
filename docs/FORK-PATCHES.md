@@ -67,6 +67,7 @@ master = 上游 master + 若干带「Fork-Patch: <id>」trailer 的提交
 | 2026-11-09 | `apps/api/src/admin/admin.module.ts` | 上游换成 `imports: [LlmModule, DatabaseModule, AiUsageModule]`，fork 那行只有 `GmModule` | 取并集 `[LlmModule, AiUsageModule, DatabaseModule, GmModule]`；控制器/服务列表上游未动，原样保留 |
 | 2026-11-09 | `apps/api/src/lib/repositories/app-settings-config.ts` | 上游新增 `aiModelPricing` / `dungeonScenarioGenerationEnabled` 两个键，与 fork 的 `runtimeLlm` 相撞 | 取并集，`runtimeLlm` 连同 L1 注释一起保留 |
 | 2026-11-09 | `apps/api/src/utils/aiClient.ts` | 上游 `c2c7c737`（全面迁移原生 `AiService`）**删掉了整个文件**，fork 侧还带本地接口分支 | 接受删除（该文件 fork 独有的只有那段分支）；把 fork 分支重锚到 `apps/api/src/llm/llm.module.ts` 的模型注册处，见下 |
+| 2026-11-27 | `apps/api/src/admin/admin.module.ts` | 上游 6a67ee8f 新增 `PresenceModule`（在线监测），与 fork `GmModule` 的 imports 行相撞 | 取并集 `[LlmModule, AiUsageModule, DatabaseModule, PresenceModule, GmModule]`；控制器/服务列表未动 |
 
 > `aiClient.ts` 的 `resolveModel` 是这套机制里最脆的一处：上游每重构一次模型解析，
 > 这里都要重判一次。解冲突时**先看上游这次把 fetch / timeout 逻辑挪到了哪一层**，
