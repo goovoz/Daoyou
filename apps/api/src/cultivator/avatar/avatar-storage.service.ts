@@ -65,13 +65,6 @@ export class AvatarStorageService {
     }
   }
 
-  async read(id: string, size: AvatarSize) {
-    const { Body } = await this.requireClient().getObject(
-      this.object(id, size),
-    );
-    return Body;
-  }
-
   async remove(id: string, size: AvatarSize) {
     await this.requireClient().deleteObject(this.object(id, size));
   }
